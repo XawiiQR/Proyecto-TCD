@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visualización de Datos COVID-19</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
+    />
+  </head>
+  <body>
+    <header>
+      <h1>Visualización de Datos COVID-19 por Condado</h1>
+    </header>
+
+    <div id="main-container">
+      <!-- Contenedor del mapa y panel de gráficos -->
+      <div
+        id="map-container"
+        style="display: flex; justify-content: space-between"
+      >
+        <!-- Mapa de Leaflet -->
+        <div id="map" style="width: 65%; height: 300px"></div>
+        <!-- Contenedor vacío al costado del mapa -->
+        <div
+          id="empty-container"
+          style="
+            width: 50%;
+            height: 300px;
+            background-color: #cb7272;
+            margin-left: 10px;
+            display: flex;
+            flex-wrap: wrap;
+          "
+        ></div>
+      </div>
+
+      <div id="controls">
+        <label for="month-slider">Selecciona un mes:</label>
+        <input
+          type="range"
+          id="month-slider"
+          min="0"
+          max="12"
+          value="0"
+          step="1"
+        />
+        <span id="month-display">Todos los meses</span>
+      </div>
+      <!-- Contenedor de gráficos debajo del mapa -->
+      <div id="analysis-container" style="width: 100%; text-align: center">
+        <div id="charts-panel">
+          <div class="charts-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>
