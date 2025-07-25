@@ -4,7 +4,7 @@ from flask_cors import CORS
 import os
 import pandas as pd
 import geopandas as gpd
-from AED import filtrar_datos, reduce_to_consecutive_counts, get_categorized_arrays
+from AED import filtrar_datos, reduce_to_consecutive_counts, get_categorized_arrays , get_name_states, get_Porcentajes , get_covid_week
 app = Flask(__name__)
 CORS(app)  # ⚠️ Permitir todos los orígenes por ahora
 
@@ -287,7 +287,200 @@ def get_categorized_data():
     except Exception as e:
         return jsonify({"error": f"Error procesando los datos: {str(e)}"}), 500
     
+@app.route("/get_name", methods=["POST"])
+def get_name():
+    # Obtener el FIPS de la solicitud
+    data = request.get_json()
+    fips = data.get("fips")
 
+    name = get_name_states(fips)
+    return jsonify(name)
+
+
+
+
+@app.route("/get_porPer", methods=["GET"])
+def get_porPer():
+    # Asumimos que la función get_Porcentajes está definida y devuelve el DataFrame deseado
+    data = get_Porcentajes(FIPS_deseados)
+    
+    # Convertir el DataFrame a una lista de diccionarios
+    data_dict = data.to_dict(orient='records')
+    
+    # Retornar la respuesta como JSON
+    return jsonify(data_dict)
+
+@app.route("/get_geojson_fip", methods=["POST"])
+def get_geojson_fip():
+
+    data = request.get_json()
+    fips = data.get("fips")
+    # Especificar manualmente el nombre del archivo GeoJSON
+    dataset_name = 'StatesFIPS.geojson'  # Cambia esto por el nombre de tu archivo GeoJSON
+    
+    
+    try:
+        # Usar GeoPandas para leer el archivo GeoJSON
+        gdf = gpd.read_file(dataset_name)  # Lee el archivo GeoJSON
+        
+        # Convertir los FIPS_deseados a strings con dos dígitos (e.g., 5 -> "05")
+        FIPS_deseados_str = [f"{fips:02d}"]
+        
+        # Filtrar el GeoDataFrame para incluir solo los features con id en FIPS_deseados
+        filtered_gdf = gdf[gdf['id'].isin(FIPS_deseados_str)]
+        
+        if filtered_gdf.empty:
+            return jsonify({"error": "No se encontraron features con los FIPS especificados"}), 404
+        
+        # Convertir el GeoDataFrame filtrado a un diccionario y enviarlo como JSON
+        data = filtered_gdf.to_json()  # GeoPandas ya devuelve un GeoJSON válido
+
+        # Aseguramos que el tipo de contenido sea 'application/geo+json'
+        return Response(data, mimetype='application/geo+json')
+        
+    except FileNotFoundError:
+        return jsonify({"error": f"Dataset '{dataset_name}' no encontrado"}), 404
+
+@app.route("/get_covid_week_fips", methods=["POST"])
+def get_covid_week_fips():
+    # Obtener el FIPS de la solicitud
+    data = request.get_json()
+    fips = data.get("fips")
+    
+    # Llamar a la función que obtiene el DataFrame
+    covid_week = get_covid_week(fips)
+    
+    # Convertir el DataFrame a JSON
+    covid_json = covid_week.to_json(orient='records', lines=False)
+        
+    # Retornar la respuesta con tipo de contenido 'application/json'
+    return Response(covid_json, mimetype='application/json')
+
+@app.route('/api/flujos/<int:fips>/<int:week>')
+def get_flujos(fips, week):
+    try:
+        # Verificar si el FIPS solicitado está en la lista permitida
+        if fips not in FIPS_deseados:
+            return jsonify({"error": f"El FIPS {fips} no está permitido."}), 403
+
+        # Cargar datos
+        df_movilidad = pd.read_csv("Movilidad2021.csv")
+        df_demografia = pd.read_csv("Demografia2021.csv")
+        
+        # Convertir FIPS a int para evitar discrepancias
+        df_movilidad['FIPS_O'] = df_movilidad['FIPS_O'].astype(int)
+        df_movilidad['FIPS_D'] = df_movilidad['FIPS_D'].astype(int)
+        df_demografia['FIPS'] = df_demografia['FIPS'].astype(int)
+        
+        # Filtrar por semana
+        df_week = df_movilidad[df_movilidad['Week'] == week].copy()
+        
+        # Obtener población (convertir a Python int nativo)
+        poblacion_fips = int(df_demografia.loc[df_demografia['FIPS'] == fips, 'Poblacion'].iloc[0])
+        
+        # --- Flujos de ENTRADA ---
+        flujos_in = df_week[(df_week['FIPS_D'] == fips) & (df_week['FIPS_O'].isin(FIPS_deseados))].copy()
+        flujos_in = flujos_in.merge(
+            df_demografia[['FIPS', 'Poblacion', 'Lat', 'Long']], 
+            left_on='FIPS_O', 
+            right_on='FIPS'
+        )
+        # Normalización Min-Max para Pop_flows de entrada
+        if not flujos_in.empty:
+            min_in = flujos_in['Pop_flows'].min()
+            max_in = flujos_in['Pop_flows'].max()
+            if max_in > min_in:
+                flujos_in['Normalizado'] = (flujos_in['Pop_flows'] - min_in) / (max_in - min_in)
+            else:
+                flujos_in['Normalizado'] = 1.0  # Todos iguales
+            # Asignar grupo
+            def grupo(val):
+                if val < 0.2: return '0.00-0.20'
+                elif val < 0.4: return '0.20-0.40'
+                elif val < 0.6: return '0.40-0.60'
+                elif val < 0.8: return '0.60-0.80'
+                else: return '0.80-1.00'
+            flujos_in['Grupo'] = flujos_in['Normalizado'].apply(grupo)
+            flujos_in = flujos_in.sort_values('Normalizado', ascending=False)
+        else:
+            flujos_in['Normalizado'] = []
+            flujos_in['Grupo'] = []
+        
+        # --- Flujos de SALIDA ---
+        flujos_out = df_week[(df_week['FIPS_O'] == fips) & (df_week['FIPS_D'].isin(FIPS_deseados))].copy()
+        flujos_out = flujos_out.merge(
+            df_demografia[['FIPS', 'Poblacion', 'Lat', 'Long']], 
+            left_on='FIPS_D', 
+            right_on='FIPS'
+        )
+        # Normalización Min-Max para Pop_flows de salida
+        if not flujos_out.empty:
+            min_out = flujos_out['Pop_flows'].min()
+            max_out = flujos_out['Pop_flows'].max()
+            if max_out > min_out:
+                flujos_out['Normalizado'] = (flujos_out['Pop_flows'] - min_out) / (max_out - min_out)
+            else:
+                flujos_out['Normalizado'] = 1.0
+            def grupo(val):
+                if val < 0.2: return '0.00-0.20'
+                elif val < 0.4: return '0.20-0.40'
+                elif val < 0.6: return '0.40-0.60'
+                elif val < 0.8: return '0.60-0.80'
+                else: return '0.80-1.00'
+            flujos_out['Grupo'] = flujos_out['Normalizado'].apply(grupo)
+            flujos_out = flujos_out.sort_values('Normalizado', ascending=False)
+        else:
+            flujos_out['Normalizado'] = []
+            flujos_out['Grupo'] = []
+        # Convertir a tipos nativos de Python
+        response = {
+            "fips": int(fips),
+            "week": int(week),
+            "poblacion": poblacion_fips,
+            "flujos_in": flujos_in[['FIPS_O', 'Pop_flows', 'Poblacion', 'Lat', 'Long', 'Normalizado', 'Grupo']]
+                .astype({
+                    'FIPS_O': int,
+                    'Pop_flows': float,
+                    'Poblacion': int,
+                    'Lat': float,
+                    'Long': float,
+                    'Normalizado': float
+                })
+                .to_dict('records'),
+            "flujos_out": flujos_out[['FIPS_D', 'Pop_flows', 'Poblacion', 'Lat', 'Long', 'Normalizado', 'Grupo']]
+                .astype({
+                    'FIPS_D': int,
+                    'Pop_flows': float,
+                    'Poblacion': int,
+                    'Lat': float,
+                    'Long': float,
+                    'Normalizado': float
+                })
+                .to_dict('records')
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+@app.route('/get_population', methods=['GET'])
+def get_population():
+    try:
+        # Cargar el CSV
+        df = pd.read_csv('Demografia2021.csv')
+
+        # Asegurar tipos correctos y eliminar nulos
+        df = df.dropna(subset=['FIPS', 'Poblacion'])
+        df['FIPS'] = df['FIPS'].astype(int)
+        df['Poblacion'] = df['Poblacion'].astype(int)
+
+        # Crear diccionario FIPS -> Población
+        pop_dict = df.set_index('FIPS')['Poblacion'].to_dict()
+
+        return jsonify(pop_dict)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
     app.run(host="0.0.0.0", port=port)

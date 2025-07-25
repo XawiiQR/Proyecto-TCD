@@ -14,29 +14,6 @@
     <header>
       <h1>Visualización de Datos COVID-19 por Condado</h1>
     </header>
-    <div id="controls">
-      <label>Selecciona un mes:</label>
-      <div
-        id="month-buttons"
-        style="
-          width: 100%;
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-        "
-      ></div>
-      <div
-        id="week-buttons"
-        style="
-          width: 100%;
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 4px 2px;
-          margin-top: 10px;
-        "
-      ></div>
-    </div>
 
     <div id="main-container">
       <!-- Contenedor del mapa y panel de gráficos -->
@@ -90,38 +67,48 @@
         ></div>
       </div>
 
+      <div id="controls">
+        <label for="month-slider">Selecciona un mes:</label>
+        <input
+          type="range"
+          id="month-slider"
+          min="0"
+          max="12"
+          value="0"
+          step="1"
+        />
+        <span id="month-display">Todos los meses</span>
+      </div>
       <!-- Contenedor de gráficos debajo del mapa -->
-      <div
-        id="analysis-container"
-        style="
-          display: flex;
-          flex-direction: row;
-          width: 100%;
-          justify-content: flex-start;
-          align-items: flex-start;
-        "
-      >
-        <div
-          id="flow-diagram-container"
-          style="
-            width: 50%;
-            min-width: 400px;
-            min-height: 300px;
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
-            margin-right: 10px;
-          "
-        ></div>
-        <div id="streamgraph-container"></div>
+      <div id="analysis-container" style="width: 100%; text-align: center">
+        <div id="charts-panel">
+          <div class="charts-container"></div>
+        </div>
       </div>
     </div>
 
+    <!-- Tooltip para el gráfico radial -->
+    <div
+      id="radial-tooltip"
+      style="
+        position: absolute;
+        opacity: 0;
+        background: white;
+        border: 1px solid #ddd;
+        padding: 10px;
+        border-radius: 5px;
+        pointer-events: none;
+      "
+    ></div>
+
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/d3.v4.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/holtzy/D3-graph-gallery@master/LIB/d3-scale-radial.js"></script>
+
     <script src="script.js"></script>
     <script src="data.js"></script>
     <script src="radialChart.js"></script>
+    <!-- Nuevo archivo para el gráfico radial -->
   </body>
 </html>

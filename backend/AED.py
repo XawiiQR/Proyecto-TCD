@@ -17,44 +17,33 @@ def filtrar_datos(fips):
     covidFips.loc[:, 'New_Deaths_Normalized'] = (covidFips['New_Deaths'] - covidFips['New_Deaths'].min()) / (covidFips['New_Deaths'].max() - covidFips['New_Deaths'].min())
     covidFips.loc[:, 'Susceptible_Normalized'] = (covidFips['Susceptible'] - covidFips['Susceptible'].min()) / (covidFips['Susceptible'].max() - covidFips['Susceptible'].min())
 
-    # Calcular los percentiles
-    p25_New_Cases = np.percentile(covidFips['New_Cases_Normalized'], 25)
-    p50_New_Cases = np.percentile(covidFips['New_Cases_Normalized'], 50)
-    p75_New_Cases = np.percentile(covidFips['New_Cases_Normalized'], 75)
-
-    p25_New_Deaths = np.percentile(covidFips['New_Deaths_Normalized'], 25)
-    p50_New_Deaths = np.percentile(covidFips['New_Deaths_Normalized'], 50)
-    p75_New_Deaths = np.percentile(covidFips['New_Deaths_Normalized'], 75)
-
-    p25_Susceptible = np.percentile(covidFips['Susceptible_Normalized'], 25)
-    p50_Susceptible = np.percentile(covidFips['Susceptible_Normalized'], 50)
-    p75_Susceptible = np.percentile(covidFips['Susceptible_Normalized'], 75)
-
+    # Crear las categorías para los datos normalizados
     covidFipsFinal = covidFips[['FIPS', 'Week']].copy()
-    # Crear nuevas columnas categorizadas según los percentiles
+
+    # Crear nuevas columnas categorizadas según los valores normalizados
     covidFipsFinal.loc[:, 'New_Cases_Category'] = np.select(
-        [covidFips['New_Cases_Normalized'] < p25_New_Cases, 
-         (covidFips['New_Cases_Normalized'] >= p25_New_Cases) & (covidFips['New_Cases_Normalized'] < p50_New_Cases),
-         (covidFips['New_Cases_Normalized'] >= p50_New_Cases) & (covidFips['New_Cases_Normalized'] < p75_New_Cases),
-         covidFips['New_Cases_Normalized'] >= p75_New_Cases],
+        [covidFips['New_Cases_Normalized'] < 0.25, 
+         (covidFips['New_Cases_Normalized'] >= 0.25) & (covidFips['New_Cases_Normalized'] < 0.50),
+         (covidFips['New_Cases_Normalized'] >= 0.50) & (covidFips['New_Cases_Normalized'] < 0.75),
+         covidFips['New_Cases_Normalized'] >= 0.75],
         [1, 2, 3, 4], 
         default=np.nan
     )
 
     covidFipsFinal.loc[:, 'New_Deaths_Category'] = np.select(
-        [covidFips['New_Deaths_Normalized'] < p25_New_Deaths, 
-         (covidFips['New_Deaths_Normalized'] >= p25_New_Deaths) & (covidFips['New_Deaths_Normalized'] < p50_New_Deaths),
-         (covidFips['New_Deaths_Normalized'] >= p50_New_Deaths) & (covidFips['New_Deaths_Normalized'] < p75_New_Deaths),
-         covidFips['New_Deaths_Normalized'] >= p75_New_Deaths],
+        [covidFips['New_Deaths_Normalized'] < 0.25, 
+         (covidFips['New_Deaths_Normalized'] >= 0.25) & (covidFips['New_Deaths_Normalized'] < 0.50),
+         (covidFips['New_Deaths_Normalized'] >= 0.50) & (covidFips['New_Deaths_Normalized'] < 0.75),
+         covidFips['New_Deaths_Normalized'] >= 0.75],
         [1, 2, 3, 4], 
         default=np.nan
     )
 
     covidFipsFinal.loc[:, 'Susceptible_Category'] = np.select(
-        [covidFips['Susceptible_Normalized'] < p25_Susceptible, 
-         (covidFips['Susceptible_Normalized'] >= p25_Susceptible) & (covidFips['Susceptible_Normalized'] < p50_Susceptible),
-         (covidFips['Susceptible_Normalized'] >= p50_Susceptible) & (covidFips['Susceptible_Normalized'] < p75_Susceptible),
-         covidFips['Susceptible_Normalized'] >= p75_Susceptible],
+        [covidFips['Susceptible_Normalized'] < 0.25, 
+         (covidFips['Susceptible_Normalized'] >= 0.25) & (covidFips['Susceptible_Normalized'] < 0.50),
+         (covidFips['Susceptible_Normalized'] >= 0.50) & (covidFips['Susceptible_Normalized'] < 0.75),
+         covidFips['Susceptible_Normalized'] >= 0.75],
         [1, 2, 3, 4], 
         default=np.nan
     )
@@ -139,6 +128,55 @@ def get_Porcentajes(arr):
     # Retornar el DataFrame final con las columnas seleccionadas y los FIPS deseados
     return(covidFin)
 
-# Llamar a la función
-get_Porcentajes(FIPS_deseados)
 
+def get_Porcentajes_fips(arr):
+    # Leer los archivos CSV
+    covid = pd.read_csv('Covid2021.csv')
+    demo = pd.read_csv('Demografia2021.csv')
+    
+    # Sumar por FIPS las nuevas muertes, casos y susceptibles
+    result = covid.groupby('FIPS')[['New_Cases', 'New_Deaths', 'Susceptible']].sum().reset_index()
+    
+    # Unir los datos de covid con la información demográfica por FIPS
+    covidFin = pd.merge(result, demo, on='FIPS')
+    
+    # Filtrar solo los FIPS que están en el array 'arr'
+    covidFin = covidFin[covidFin['FIPS']== arr].reset_index()
+    
+    # Calcular los porcentajes por población
+    covidFin["New_case_por_Population"] = (covidFin["New_Cases"] / covidFin["Poblacion"]).round(4)
+    covidFin["New_death_por_Population"] = (covidFin["New_Deaths"] / covidFin["Poblacion"]).round(4)
+    covidFin["Susceptible_por_Population"] = (covidFin["Susceptible"] / covidFin["Poblacion"]).round(4)
+    
+    # Seleccionar solo las columnas que desees
+    columnas_deseadas = ['FIPS', 
+                         'New_case_por_Population', 'New_death_por_Population', 'Susceptible_por_Population']
+    
+    covidFin = covidFin[columnas_deseadas]
+    
+    # Retornar el DataFrame final con las columnas seleccionadas y los FIPS deseados
+    return(covidFin)
+def get_covid_week(fips):
+    # Cargar los datos desde el archivo CSV
+    covid = pd.read_csv('Covid2021.csv')
+
+    # Filtrar los datos por FIPS
+    covidFips = covid[covid['FIPS'] == fips].copy()
+    
+    # Normalizar las columnas 'New_Cases', 'New_Deaths' y 'Susceptible' utilizando Min-Max
+    covidFips.loc[:, 'New_Cases_Normalized'] = (covidFips['New_Cases'] - covidFips['New_Cases'].min()) / (covidFips['New_Cases'].max() - covidFips['New_Cases'].min())
+    covidFips.loc[:, 'New_Deaths_Normalized'] = (covidFips['New_Deaths'] - covidFips['New_Deaths'].min()) / (covidFips['New_Deaths'].max() - covidFips['New_Deaths'].min())
+    covidFips.loc[:, 'Susceptible_Normalized'] = (covidFips['Susceptible'] - covidFips['Susceptible'].min()) / (covidFips['Susceptible'].max() - covidFips['Susceptible'].min())
+
+    # Agrupar por semana y sumar las nuevas muertes y casos
+    covid_weekly = covidFips.groupby('Week')[['New_Cases_Normalized', 'New_Deaths_Normalized', "Susceptible_Normalized"]].sum().reset_index()
+
+    # Renombrar las columnas para mayor claridad (si es necesario)
+    covid_weekly.rename(columns={'New_Cases_Normalized': 'New_Cases_Normalized', 'New_Deaths_Normalized': 'New_Deaths_Normalized', 'Susceptible_Normalized': 'Susceptible_Normalized'}, inplace=True)
+
+    return covid_weekly
+
+
+print(filtrar_datos(5))
+
+#print(get_covid_week(5))  # Llamada de ejemplo para probar la función

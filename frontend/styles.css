@@ -1,11 +1,25 @@
+#charts-panel,
+.compact-container,
+.state-row {
+  max-width: 35vw !important;
+}
+.cases-container,
+.deaths-container {
+  min-width: 80px !important;
+  max-width: 180px !important;
+}
+.state-name {
+  font-size: 12px !important;
+  min-width: 60px !important;
+  max-width: 90px !important;
+  padding-right: 4px !important;
+}
+
 /* Estilos generales */
 body {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
   background-color: #f5f7fa;
   color: #333;
 }
@@ -26,11 +40,9 @@ header h1 {
 /* Contenedor principal */
 #main-container {
   display: flex;
-  flex: 1;
-  overflow: hidden;
   flex-direction: column;
   padding: 10px;
-  overflow-y: auto; /* Permite el scroll */
+  min-height: 100vh; /* Allow page to expand beyond viewport */
 }
 
 /* Contenedor del mapa */
@@ -38,37 +50,68 @@ header h1 {
   display: flex;
   flex-direction: row;
   width: 100%;
-  overflow-y: auto; /* Permite desplazarse si el contenido excede la altura */
+  gap: 10px;
 }
 
 #map {
   height: 500px;
-  flex: 0.5;
-  width: 70%;
+  flex: 0.4;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   background-color: white;
 }
 
 #empty-container {
-  flex: 0.5;
+  flex: 0.4;
   height: 500px;
   background-color: #7b1414;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* Panel de gráficos */
-#charts-panel {
+#radial-chart-container {
+  flex: 0.4;
+  height: 500px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   display: flex;
-  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Controles */
+#controls {
+  padding: 15px;
+  background: #f5f5f5;
+  margin: 10px;
+  border-radius: 5px;
+  text-align: center;
+}
+
+#month-slider {
+  width: 300px;
+  margin: 0 10px;
+}
+
+#month-display {
+  font-weight: bold;
+  min-width: 100px;
+  display: inline-block;
+}
+
+/* Panel de gráficos */
+#analysis-container {
+  width: 100%;
+  text-align: center;
+  margin-top: 10px;
+}
+
+#charts-panel {
   padding: 12px 8px;
-  overflow-y: auto; /* Permite el scroll */
   background-color: white;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  max-height: 30vh; /* Limita la altura máxima del panel de gráficos */
-  overflow-y: auto; /* Permite desplazarse si hay más contenido */
 }
 
 /* Contenedor de gráficos */
@@ -78,15 +121,62 @@ header h1 {
   padding: 2px;
 }
 
-.chart-box {
-  position: relative;
+/* Contenedor de gráficos desplazables horizontalmente */
+#scrollable-charts-container {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  padding: 10px 0;
+  background-color: #f5f7fa;
+  border-radius: 6px;
+}
+
+.scrollable-charts {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  min-width: max-content;
+  padding: 0 10px;
+}
+
+.scrollable-charts .chart-box {
+  flex: 0 0 auto;
+  width: 400px;
+  height: 300px;
   background: white;
   border-radius: 6px;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.1);
   padding: 12px 8px;
   border: 1px solid #e0e0e0;
-  display: flex;
+  display: inline-flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+}
+
+#scrollable-charts-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+#scrollable-charts-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+#scrollable-charts-container::-webkit-scrollbar-thumb {
+  background-color: #ccc;
+  border-radius: 4px;
+}
+
+/* Nuevo contenedor azul */
+#blue-container {
+  width: 100%;
+  height: 25vh;
+  background-color: #2c3e50;
+  margin-top: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 /* Estilo del título en los gráficos */
@@ -96,14 +186,13 @@ header h1 {
   font-size: 1em;
   padding-bottom: 8px;
   text-align: left;
-  flex: 0 0 150px; /* Define un ancho fijo para el título */
+  flex: 0 0 150px;
 }
 
 /* Contenedor de los gráficos */
 .chart-container {
   display: flex;
   justify-content: space-between;
-
   margin-top: 0;
   flex: 1;
 }
@@ -154,49 +243,23 @@ header h1 {
   color: #e74c3c;
 }
 
-/* Scrollbar */
-#charts-panel::-webkit-scrollbar {
-  width: 6px;
+/* Tooltip para el gráfico radial */
+#radial-tooltip {
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  position: absolute;
+  opacity: 0;
+  background: white;
+  border: 1px solid #ddd;
+  padding: 10px;
+  border-radius: 5px;
+  pointer-events: none;
+  z-index: 1000;
 }
 
-#charts-panel::-webkit-scrollbar-track {
-  background: #f1f1f1;
-}
-
-#charts-panel::-webkit-scrollbar-thumb {
-  background-color: #ccc;
-  border-radius: 3px;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  #main-container {
-    flex-direction: column;
-  }
-
-  #map-container {
-    flex-direction: column;
-  }
-
-  #map {
-    width: 100%;
-    height: 300px;
-  }
-
-  #empty-container {
-    width: 100%;
-    height: 300px;
-  }
-
-  #charts-panel {
-    max-height: 45vh;
-    padding: 10px 6px;
-  }
-
-  .chart-container {
-    flex-direction: column;
-    gap: 6px;
-  }
+#radial-tooltip.fixed-tooltip {
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  border: 1px solid #999;
 }
 
 /* Elementos de gráficos */
@@ -263,14 +326,45 @@ header h1 {
   color: #2c3e50;
 }
 
-.svg-container {
-  display: inline-block;
-  margin: 0 auto;
-  vertical-align: middle;
-}
+/* Responsive */
+@media (max-width: 768px) {
+  #main-container {
+    flex-direction: column;
+  }
 
-/* Opcional: Estilos para hacer la tabla responsive */
-@media screen and (max-width: 600px) {
+  #map-container {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  #map {
+    width: 100%;
+    height: 300px;
+  }
+
+  #empty-container {
+    width: 100%;
+    height: 300px;
+  }
+
+  #radial-chart-container {
+    width: 100%;
+    height: 300px;
+  }
+
+  #scrollable-charts-container {
+    padding: 5px 0;
+  }
+
+  .scrollable-charts .chart-box {
+    width: 300px;
+    height: 250px;
+  }
+
+  #blue-container {
+    height: 20vh;
+  }
+
   .county-table {
     border: 0;
   }
@@ -310,21 +404,107 @@ header h1 {
   }
 }
 
-#controls {
-  padding: 15px;
-  background: #f5f5f5;
-  margin: 10px;
-  border-radius: 5px;
-  text-align: center;
+.reference-circles circle {
+  pointer-events: none;
 }
 
-#month-slider {
-  width: 300px;
-  margin: 0 10px;
+.mobility-container {
+  transition: all 0.3s ease;
 }
 
-#month-display {
+.mobility-container h3 {
+  color: #2c3e50;
+  font-size: 1.2em;
+}
+
+.link--in {
+  stroke: #1f77b4;
+  stroke-opacity: 0.7;
+}
+
+.link--out {
+  stroke: #2ca02c;
+  stroke-opacity: 0.7;
+}
+
+.node text {
+  font-size: 12px;
   font-weight: bold;
-  min-width: 100px;
-  display: inline-block;
+}
+
+#mobility-week-selector {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+}
+
+#month-buttons {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  padding: 8px 0;
+  overflow-x: auto;
+}
+.month-btn {
+  flex: 1 1 0;
+  min-width: 80px;
+  max-width: 160px;
+  font-size: 1rem;
+  margin: 0;
+  padding: 8px 0;
+  border-radius: 8px;
+  border: 1.5px solid #ccc;
+  background: #f8f9fa;
+  color: #2c3e50;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.month-btn.selected,
+.month-btn:active,
+.month-btn.selected:focus {
+  background: #2c3e50;
+  color: #fff;
+  border: 1.5px solid #2c3e50;
+}
+
+.week-btn {
+  min-width: 28px;
+  max-width: 38px;
+  font-size: 0.95rem;
+  margin: 0 2px;
+  padding: 4px 0;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  background: #f8f9fa;
+  color: #2c3e50;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, outline 0.2s;
+  outline: none;
+}
+.week-btn.selected,
+.week-btn:active,
+.week-btn.selected:focus {
+  background: #2c3e50;
+  color: #fff;
+  border: 1.5px solid #2c3e50;
+}
+
+#flow-diagram-container svg {
+  width: 100% !important;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  min-width: 300px;
+  aspect-ratio: 14/6;
 }
