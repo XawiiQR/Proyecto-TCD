@@ -202,7 +202,28 @@ function createRadialChart(containerId, tooltipId, fipsCode) {
       //   d3.select(this).attr("opacity", 1);
       // })
       .on("click", function (event, d) {
-        showTooltip(event, d, true);
+        const selectedWeek = d.Week || d.data?.week;
+        window.lastFlowWeek = selectedWeek;
+        // Actualiza los botones de semana
+        if (typeof createWeekButtons === "function") {
+          createWeekButtons(selectedWeek);
+        }
+        // Actualiza el diagrama de flujo
+        if (window.lastFlowFips) {
+          loadFlowDiagram(window.lastFlowFips, selectedWeek);
+        }
+        // Actualiza los cubos
+        if (typeof filterByWeek === "function") {
+          filterByWeek(selectedWeek);
+        }
+        // (Opcional) Resalta la semana en el radial
+        if (typeof window.highlightRadialWeek === "function") {
+          window.highlightRadialWeek(selectedWeek);
+        }
+        // --- NUEVO: Sincroniza el gráfico de líneas doble ---
+        if (typeof updateLineChartHighlights === "function") {
+          updateLineChartHighlights();
+        }
       });
 
     // Add the second series (New_Deaths_Normalized) with color coding (COLORES ORIGINALES)
@@ -244,7 +265,20 @@ function createRadialChart(containerId, tooltipId, fipsCode) {
       //   d3.select(this).attr("opacity", 1);
       // })
       .on("click", function (event, d) {
-        showTooltip(event, d, true);
+        const selectedWeek = d.Week || d.data?.week;
+        window.lastFlowWeek = selectedWeek;
+        if (typeof createWeekButtons === "function") {
+          createWeekButtons(selectedWeek);
+        }
+        if (window.lastFlowFips) {
+          loadFlowDiagram(window.lastFlowFips, selectedWeek);
+        }
+        if (typeof filterByWeek === "function") {
+          filterByWeek(selectedWeek);
+        }
+        if (typeof window.highlightRadialWeek === "function") {
+          window.highlightRadialWeek(selectedWeek);
+        }
       });
 
     // Tooltip functions (ORIGINAL)

@@ -7,7 +7,11 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 // Variables globales
 let geojsonLayer;
 const createdCharts = new Set();
-const FIPS_deseados = [5, 9, 19, 20, 28, 32, 40, 41, 49];
+FIPS_deseados = [
+  1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+  26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45,
+  46, 47, 48, 49, 50, 51, 53, 54, 55, 56,
+];
 window.weekMonthMap = createWeekMonthMap(2021); // Asegura que sea global y antes de cualquier uso
 let currentSelectedFips = null;
 const flowDataCache = new Map(); // Caché para datos de la API
@@ -82,35 +86,32 @@ function loadGeoJSON() {
           layer.bindPopup(createPopupContent(props));
 
           layer.on({
-            mouseover: (e) => highlightFeature(e),
-            mouseout: (e) => resetHighlight(e),
             click: (e) => {
               const fips = String(e.target.feature.properties.id).padStart(
                 2,
                 "0"
               );
               window.lastFlowFips = fips; // Guardar el último FIPS seleccionado
-              if (selectedFipsSet.has(fips)) {
-                selectedFipsSet.delete(fips);
-                highlightCountyByFips(fips, false);
-                removeCountyPanel(fips);
-              } else {
-                selectedFipsSet.add(fips);
-                highlightCountyByFips(fips, true);
-                // showCountyData(fips); // Comentado según la solicitud
-                createRadialChart(
-                  "radial-chart-container",
-                  "radial-tooltip",
-                  parseInt(fips)
-                );
-                loadFlowDiagram(fips, window.lastFlowWeek || 1);
-                printTrendForState(fips);
-                renderDoubleLineChart(fips); // Grafica el gráfico de líneas doble al seleccionar un estado
-              }
+              // Selección única: limpia el set y solo agrega el nuevo
+              selectedFipsSet.clear();
+              selectedFipsSet.add(fips);
+              refreshSelectedFipsBorders();
+              // Paneles y gráficos
+              createRadialChart(
+                "radial-chart-container",
+                "radial-tooltip",
+                parseInt(fips)
+              );
+              loadFlowDiagram(fips, window.lastFlowWeek || 1);
+              printTrendForState(fips);
+              renderDoubleLineChart(fips);
             },
           });
         },
       }).addTo(map);
+
+      // --- NUEVO: Agregar etiquetas con nombres de estados ---
+      addStateLabels(data);
     })
     .catch(handleFetchError);
 }
@@ -210,7 +211,7 @@ function updateFlowDiagramSVG(fips, week) {
   }
 
   // Fetch datos y almacenar en caché
-  fetch(`http://localhost:5050/api/flujos/${fips}/${week}`)
+  fetch(`http://localhost:5050/api/flujos/${fips}/${week - 1}`)
     .then((response) => response.json())
     .then((data) => {
       flowDataCache.set(cacheKey, data);
@@ -239,28 +240,10 @@ function renderFlowDiagram(vizContainer, data, week) {
   );
   const netaPercent = outflowPercent - inflowPercent;
 
-  // Mostrar movilidad neta en la parte superior (en porcentaje)
-  vizContainer.select(".net-mobility-info").remove(); // Elimina el resumen anterior si existe
-  vizContainer
-    .insert("div", ":first-child")
-    .attr("class", "net-mobility-info")
-    .style("text-align", "center")
-    .style("font-weight", "bold")
-    .style("font-size", "16px")
-    .style("margin-bottom", "8px")
-    .html(
-      `Movilidad neta semana ${week}: <span style='color:#8E44AD'>${(
-        netaPercent * 100
-      ).toFixed(2)}%</span> (Entraron: <span style='color:#27ae60'>${(
-        inflowPercent * 100
-      ).toFixed(2)}%</span>, Salieron: <span style='color:#c0392b'>${(
-        outflowPercent * 100
-      ).toFixed(2)}%</span> de la población)`
-    );
-
   // Configuración del SVG
-  const width = vizContainer.node().clientWidth; // Quitar Math.min(1400, ...)
-  const height = 500; // Reducir altura para menos espacio en blanco
+  const width = 800;
+  const height = 1900;
+  vizContainer.style("overflow-x", "auto");
   let svg = vizContainer.select("svg");
   if (svg.empty()) {
     svg = vizContainer
@@ -669,6 +652,70 @@ function renderFlowDiagram(vizContainer, data, week) {
     .x((d) => d.x)
     .y((d) => d.y);
 
+  // --- NUEVO: Top 5 contribuyentes a la movilidad neta (por estado) ---
+  // Calcula la resta de Porcentaje de entrada y salida para cada estado
+  const netContrib = {};
+  (data.flujos_in || []).forEach((d) => {
+    netContrib[d.FIPS_O] = (netContrib[d.FIPS_O] || 0) + (d.Porcentaje || 0);
+  });
+  (data.flujos_out || []).forEach((d) => {
+    netContrib[d.FIPS_D] = (netContrib[d.FIPS_D] || 0) - (d.Porcentaje || 0);
+  });
+  // Ordena por valor absoluto y toma el top 5
+  const top5 = Object.entries(netContrib)
+    .map(([fips, value]) => ({ fips, value }))
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    .slice(0, 5);
+  const top5FipsSet = new Set(top5.map((d) => d.fips));
+
+  // --- NUEVO: Calcular neto para cada estado conectado (<100%) ---
+  const connectedStatesNet = {};
+
+  // Para estados de entrada
+  (data.flujos_in || []).forEach((d) => {
+    if (d.Porcentaje > 0.0) {
+      // Solo estados con <100%
+      connectedStatesNet[d.FIPS_O] = {
+        fips: d.FIPS_O,
+        stateName:
+          FIPS_TO_STATE[String(d.FIPS_O).padStart(2, "0")] ||
+          `FIPS ${d.FIPS_O}`,
+        inflow: d.Porcentaje,
+        outflow: 0,
+        net: d.Porcentaje,
+      };
+    }
+  });
+
+  // Para estados de salida
+  (data.flujos_out || []).forEach((d) => {
+    if (d.Porcentaje > 0.0) {
+      // Solo estados con <100%
+      if (connectedStatesNet[d.FIPS_D]) {
+        // Si ya existe, actualizar outflow y net
+        connectedStatesNet[d.FIPS_D].outflow = d.Porcentaje;
+        connectedStatesNet[d.FIPS_D].net =
+          connectedStatesNet[d.FIPS_D].inflow - d.Porcentaje;
+      } else {
+        // Si no existe, crear nuevo
+        connectedStatesNet[d.FIPS_D] = {
+          fips: d.FIPS_D,
+          stateName:
+            FIPS_TO_STATE[String(d.FIPS_D).padStart(2, "0")] ||
+            `FIPS ${d.FIPS_D}`,
+          inflow: 0,
+          outflow: d.Porcentaje,
+          net: -d.Porcentaje,
+        };
+      }
+    }
+  });
+
+  // Ordenar por valor absoluto del neto
+  const sortedConnectedStates = Object.values(connectedStatesNet).sort(
+    (a, b) => Math.abs(b.net) - Math.abs(a.net)
+  );
+
   // Crear enlaces
   const linkSelection = svg
     .selectAll(".link")
@@ -679,6 +726,26 @@ function renderFlowDiagram(vizContainer, data, week) {
     .attr("class", (d) => d.class)
     .attr("stroke-width", (d) => d.width)
     .attr("stroke-opacity", (d) => d.opacity)
+    .attr("stroke", (d) => {
+      // --- Resalta en rojo si es uno de los top 5 contribuyentes ---
+      // Para links de entrada: d.target es un nodo relacionado a in_*
+      // Para links de salida: d.target es un nodo relacionado a out_*
+      let fips = null;
+      if (d.class === "link-in") {
+        // Buscar FIPS de entrada
+        const match = /in_(\d+)/.exec(d.target);
+        if (match) fips = match[1];
+      } else if (d.class === "link-out") {
+        // Buscar FIPS de salida
+        const match = /out_(\d+)/.exec(d.target);
+        if (match) fips = match[1];
+      }
+      if (fips && top5FipsSet.has(fips)) {
+        return "#e53935"; // Rojo
+      }
+      // Colores originales
+      return d.class === "link-in" ? "#1f77b4" : "#ff7f0e";
+    })
     .attr("d", (d) => {
       const s = nodeMap.get(d.source);
       const t = nodeMap.get(d.target);
@@ -789,6 +856,94 @@ function renderFlowDiagram(vizContainer, data, week) {
   console.log(
     `Semana: ${week}, Enlaces creados: ${links.length}, Nodos: ${nodes.length}`
   );
+
+  // --- NUEVO: Mostrar información de neto de estados conectados ---
+  const netInfoContainer = d3
+    .select("#flow-diagram-container")
+    .append("div")
+    .attr("class", "net-info-container")
+    .style("margin-top", "20px")
+    .style("padding", "15px")
+    .style("background", "#f8f9fa")
+    .style("border-radius", "8px")
+    .style("border", "1px solid #dee2e6");
+
+  netInfoContainer
+    .append("h4")
+    .style("margin", "0 0 10px 0")
+    .style("color", "#2c3e50")
+    .style("font-size", "16px")
+    .text("Movilidad neta por estado conectado (<100%)");
+
+  if (sortedConnectedStates.length > 0) {
+    const table = netInfoContainer
+      .append("table")
+      .style("width", "100%")
+      .style("border-collapse", "collapse")
+      .style("font-size", "14px");
+
+    // Encabezados
+    const header = table.append("thead");
+    header
+      .append("tr")
+      .selectAll("th")
+      .data(["Estado", "Entrada (%)", "Salida (%)", "Neto (%)"])
+      .enter()
+      .append("th")
+      .style("padding", "8px")
+      .style("text-align", "left")
+      .style("border-bottom", "2px solid #dee2e6")
+      .style("background", "#e9ecef")
+      .style("font-weight", "bold")
+      .text((d) => d);
+
+    // Filas de datos
+    const tbody = table.append("tbody");
+    const rows = tbody
+      .selectAll("tr")
+      .data(sortedConnectedStates)
+      .enter()
+      .append("tr")
+      .style("border-bottom", "1px solid #dee2e6");
+
+    // Estado
+    rows
+      .append("td")
+      .style("padding", "8px")
+      .style("font-weight", "bold")
+      .text((d) => d.stateName);
+
+    // Entrada
+    rows
+      .append("td")
+      .style("padding", "8px")
+      .style("color", "#1f77b4")
+      .text((d) => (d.inflow > 0 ? (d.inflow * 100).toFixed(2) : "-"));
+
+    // Salida
+    rows
+      .append("td")
+      .style("padding", "8px")
+      .style("color", "#ff7f0e")
+      .text((d) => (d.outflow > 0 ? (d.outflow * 100).toFixed(2) : "-"));
+
+    // Neto
+    rows
+      .append("td")
+      .style("padding", "8px")
+      .style("font-weight", "bold")
+      .style("color", (d) =>
+        d.net > 0 ? "#28a745" : d.net < 0 ? "#dc3545" : "#6c757d"
+      )
+      .text((d) => (d.net * 100).toFixed(2) + "%");
+  } else {
+    netInfoContainer
+      .append("p")
+      .style("margin", "0")
+      .style("color", "#6c757d")
+      .style("font-style", "italic")
+      .text("No hay estados conectados con movilidad <100% en esta semana.");
+  }
 }
 
 // Resto de funciones (sin cambios significativos)
@@ -1042,6 +1197,12 @@ function setupMonthSlider() {
           window.highlightRadialMonth(idx);
         }
       }
+      // --- NUEVO: Actualiza el resaltado de semanas del mes en el gráfico de líneas ---
+      window.lastFlowMonth = idx;
+      window.lastFlowWeek = 0;
+      if (typeof updateLineChartHighlights === "function") {
+        updateLineChartHighlights();
+      }
     });
     buttonsContainer.appendChild(btn);
   });
@@ -1062,22 +1223,100 @@ function transformDataForChart(categoryData) {
   });
 }
 
-function highlightCountyByFips(fips, highlight = true) {
+// --- INICIO MODIFICACIÓN: colorear según tendencia ---
+// Caché global para los datos de casos por FIPS
+if (!window.casesLevelCache) window.casesLevelCache = {};
+
+async function highlightCountyByFips(fips, highlight = true) {
+  const layerFipsStr = String(fips).padStart(2, "0");
+  const week = window.lastFlowWeek || 1;
+  const type = "cases";
+  function getLevelForWeek(casesData, week) {
+    let weekIdx = 0;
+    for (let i = 0; i < casesData.length; i++) {
+      const { level, count } = casesData[i];
+      if (week > weekIdx && week <= weekIdx + count) {
+        return level;
+      }
+      weekIdx += count;
+    }
+    return 1;
+  }
+  function applyColor(layer, level, border) {
+    const color = getColor(level, type);
+    layer.setStyle({
+      weight: border ? 4 : 1,
+      color: border ? "#000" : "white",
+      fillOpacity: 0.7,
+      fillColor: color,
+    });
+    if (border) layer.bringToFront();
+  }
   geojsonLayer.eachLayer(function (layer) {
     const layerFips = String(layer.feature.properties.id).padStart(2, "0");
-    const fipsString = String(fips).padStart(2, "0");
-
-    if (layerFips === fipsString) {
-      layer.setStyle({
-        weight: highlight ? 3 : 1,
-        color: highlight ? "#4EAC95" : "white",
-        fillOpacity: highlight ? 0.7 : 0.7,
-        fillColor: highlight ? "#42CFAD" : "#37EDC1",
-      });
-      if (highlight) layer.bringToFront();
+    // Si el layer es el seleccionado
+    if (layerFips === layerFipsStr && highlight) {
+      if (
+        window.casesLevelCache[layerFipsStr] &&
+        window.casesLevelCache[layerFipsStr][week]
+      ) {
+        const level = window.casesLevelCache[layerFipsStr][week];
+        applyColor(layer, level, true);
+      } else {
+        fetchCountyData(layerFipsStr).then((data) => {
+          if (data && data.new_cases_category) {
+            const casesData = transformDataForChart(data.new_cases_category);
+            let weekIdx = 1;
+            const weekToLevel = {};
+            for (const { level, count } of casesData) {
+              for (let i = 0; i < count; i++) {
+                weekToLevel[weekIdx] = level;
+                weekIdx++;
+              }
+            }
+            window.casesLevelCache[layerFipsStr] = weekToLevel;
+            const level = weekToLevel[week] || 1;
+            applyColor(layer, level, true);
+          } else {
+            applyColor(layer, 1, true);
+          }
+        });
+      }
+    } else {
+      // Si el layer está en el set de seleccionados, borde negro, si no, borde blanco
+      const isSelected =
+        globalThis.selectedFipsSet && globalThis.selectedFipsSet.has(layerFips);
+      const border = isSelected;
+      if (
+        window.casesLevelCache[layerFips] &&
+        window.casesLevelCache[layerFips][week]
+      ) {
+        const level = window.casesLevelCache[layerFips][week];
+        applyColor(layer, level, border);
+      } else {
+        fetchCountyData(layerFips).then((data) => {
+          if (data && data.new_cases_category) {
+            const casesData = transformDataForChart(data.new_cases_category);
+            let weekIdx = 1;
+            const weekToLevel = {};
+            for (const { level, count } of casesData) {
+              for (let i = 0; i < count; i++) {
+                weekToLevel[weekIdx] = level;
+                weekIdx++;
+              }
+            }
+            window.casesLevelCache[layerFips] = weekToLevel;
+            const level = weekToLevel[week] || 1;
+            applyColor(layer, level, border);
+          } else {
+            applyColor(layer, 1, border);
+          }
+        });
+      }
     }
   });
 }
+// --- FIN MODIFICACIÓN ---
 
 function fetchCountyData(fips) {
   return fetch("http://127.0.0.1:5050/get_categorized_data", {
@@ -1107,6 +1346,113 @@ function createPopupContent(props) {
   return `<b>${props.name || "N/A"}</b><br>FIPS: ${props.id || "N/A"}`;
 }
 
+// --- NUEVO: Función para agregar etiquetas de estados ---
+function addStateLabels(geojsonData) {
+  // Crear una capa de marcadores para las etiquetas
+  const labelLayer = L.layerGroup().addTo(map);
+
+  geojsonData.features.forEach((feature) => {
+    const fips = String(feature.properties.id).padStart(2, "0");
+    const stateName =
+      FIPS_TO_STATE[fips] || feature.properties.name || `FIPS ${fips}`;
+
+    // Calcular el centro del estado
+    const bounds = L.geoJSON(feature).getBounds();
+    const center = bounds.getCenter();
+
+    // Abreviar nombres largos para mejor visualización
+    const shortName = getShortStateName(stateName);
+
+    // Crear etiqueta personalizada
+    const label = L.divIcon({
+      className: "state-label",
+      html: `<div style="
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid #2c3e50;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: bold;
+        color: #2c3e50;
+        text-align: center;
+        white-space: nowrap;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        pointer-events: none;
+        user-select: none;
+        font-family: Arial, sans-serif;
+        letter-spacing: 0.5px;
+      ">${shortName}</div>`,
+      iconSize: [1, 1],
+      iconAnchor: [0, 0],
+    });
+
+    // Agregar marcador con etiqueta
+    L.marker(center, { icon: label }).addTo(labelLayer);
+  });
+
+  // Guardar referencia a la capa de etiquetas para poder controlarla
+  window.stateLabelLayer = labelLayer;
+}
+
+// --- NUEVO: Función para abreviar nombres de estados ---
+function getShortStateName(fullName) {
+  const abbreviations = {
+    Alabama: "AL",
+    Alaska: "AK",
+    Arizona: "AZ",
+    Arkansas: "AR",
+    California: "CA",
+    Colorado: "CO",
+    Connecticut: "CT",
+    Delaware: "DE",
+    "District of Columbia": "DC",
+    Florida: "FL",
+    Georgia: "GA",
+    Hawaii: "HI",
+    Idaho: "ID",
+    Illinois: "IL",
+    Indiana: "IN",
+    Iowa: "IA",
+    Kansas: "KS",
+    Kentucky: "KY",
+    Louisiana: "LA",
+    Maine: "ME",
+    Maryland: "MD",
+    Massachusetts: "MA",
+    Michigan: "MI",
+    Minnesota: "MN",
+    Mississippi: "MS",
+    Missouri: "MO",
+    Montana: "MT",
+    Nebraska: "NE",
+    Nevada: "NV",
+    "New Hampshire": "NH",
+    "New Jersey": "NJ",
+    "New Mexico": "NM",
+    "New York": "NY",
+    "North Carolina": "NC",
+    "North Dakota": "ND",
+    Ohio: "OH",
+    Oklahoma: "OK",
+    Oregon: "OR",
+    Pennsylvania: "PA",
+    "Rhode Island": "RI",
+    "South Carolina": "SC",
+    "South Dakota": "SD",
+    Tennessee: "TN",
+    Texas: "TX",
+    Utah: "UT",
+    Vermont: "VT",
+    Virginia: "VA",
+    Washington: "WA",
+    "West Virginia": "WV",
+    Wisconsin: "WI",
+    Wyoming: "WY",
+  };
+
+  return abbreviations[fullName] || fullName;
+}
+
 function highlightFeature(e) {
   const layer = e.target;
   const fips = String(layer.feature.properties.id).padStart(2, "0");
@@ -1114,7 +1460,9 @@ function highlightFeature(e) {
   layer.setStyle({
     weight: 3,
     color: "#4EAC95",
-    fillOpacity: 0.7,
+    // fillOpacity y fillColor NO se tocan para no cambiar el fondo
+    // fillOpacity: 0.7,
+    // fillColor: ...
   });
   layer.bringToFront();
 
@@ -1385,6 +1733,31 @@ document.addEventListener("DOMContentLoaded", () => {
       text-align: center;
       padding: 20px;
     }
+    /* Estilos para las etiquetas de estados */
+    .state-label {
+      background: transparent !important;
+      border: none !important;
+    }
+    .state-label div {
+      transition: all 0.3s ease;
+      transform-origin: center;
+    }
+    /* Ajustar tamaño de fuente según el zoom */
+    .leaflet-zoom-animated .state-label div {
+      font-size: 11px;
+    }
+    .leaflet-zoom-animated.leaflet-zoom-level-5 .state-label div,
+    .leaflet-zoom-animated.leaflet-zoom-level-6 .state-label div {
+      font-size: 10px;
+    }
+    .leaflet-zoom-animated.leaflet-zoom-level-7 .state-label div,
+    .leaflet-zoom-animated.leaflet-zoom-level-8 .state-label div {
+      font-size: 12px;
+    }
+    .leaflet-zoom-animated.leaflet-zoom-level-9 .state-label div,
+    .leaflet-zoom-animated.leaflet-zoom-level-10 .state-label div {
+      font-size: 14px;
+    }
   `;
   document.head.appendChild(style);
 });
@@ -1422,6 +1795,10 @@ function createWeekButtons(selectedWeek) {
         loadFlowDiagram(window.lastFlowFips, i);
       }
       if (window.highlightRadialWeek) window.highlightRadialWeek(i);
+      // --- NUEVO: Sincroniza el gráfico de líneas doble ---
+      if (typeof updateLineChartHighlights === "function") {
+        updateLineChartHighlights();
+      }
     });
     weekButtonsContainer.appendChild(btn);
   }
@@ -1494,6 +1871,12 @@ function printTrendForState(fips) {
           parseInt(fipsItem)
         );
         loadFlowDiagram(fipsItem, window.lastFlowWeek || 1);
+        if (typeof window.updateLineChartHighlights === "function") {
+          window.updateLineChartHighlights();
+        }
+        if (typeof renderDoubleLineChart === "function") {
+          renderDoubleLineChart(fipsItem);
+        }
       });
     fetch("http://localhost:5050/get_name", {
       method: "POST",
@@ -1684,6 +2067,7 @@ async function renderDoubleLineChart(fips) {
   }
   container.html("");
   if (!fips) return;
+
   // Obtén datos de casos
   const casesResp = await fetch("http://localhost:5050/get_covid_week_fips", {
     method: "POST",
@@ -1691,8 +2075,10 @@ async function renderDoubleLineChart(fips) {
     body: JSON.stringify({ fips: parseInt(fips) }),
   });
   const casesData = await casesResp.json();
+
   // Prepara array de semanas
   const weeks = Array.from({ length: 52 }, (_, i) => i + 1);
+
   // Obtén datos de movilidad neta normalizada por semana
   const netMobilityData = await Promise.all(
     weeks.map(async (week) => {
@@ -1700,7 +2086,6 @@ async function renderDoubleLineChart(fips) {
         `http://localhost:5050/api/flujos/${fips}/${week}`
       );
       const data = await resp.json();
-      // Suma porcentajes de entrada y salida
       const inflowPercent = (data.flujos_in || []).reduce(
         (sum, d) => sum + (d.Porcentaje || 0),
         0
@@ -1713,6 +2098,7 @@ async function renderDoubleLineChart(fips) {
       return { week, netaPercent };
     })
   );
+
   // Unir datos por semana
   const lineData = weeks.map((week) => {
     const casos =
@@ -1721,14 +2107,17 @@ async function renderDoubleLineChart(fips) {
     const netaPercent = netMobilityData[week - 1]?.netaPercent || 0;
     return { week, casos, netaPercent };
   });
+
   // Dimensiones
-  const width = 400,
-    height = 220,
+  const width = 450,
+    height = 300,
     margin = { top: 30, right: 50, bottom: 40, left: 50 };
+
   const svg = container
     .append("svg")
     .attr("width", width)
     .attr("height", height);
+
   // Escalas
   const x = d3
     .scaleLinear()
@@ -1747,6 +2136,102 @@ async function renderDoubleLineChart(fips) {
     ])
     .nice()
     .range([height - margin.bottom, margin.top]);
+
+  // Asegura variables globales
+  window.lastFlowWeek = window.lastFlowWeek || 1;
+  window.lastFlowMonth = window.lastFlowMonth || 0; // 0 = todos los meses
+
+  const weekMonthMap = window.weekMonthMap || createWeekMonthMap(2021);
+
+  function getWeekRectColor(week) {
+    if (window.lastFlowWeek === week) {
+      return "#64b5f6"; // Naranja para la semana seleccionada
+    }
+    if (window.lastFlowMonth) {
+      const monthOfWeek = weekMonthMap[week - 1]?.month;
+      if (monthOfWeek === window.lastFlowMonth) {
+        return "#BBDEFB"; // Azul claro para las semanas del mes seleccionado
+      }
+    }
+    return "#ffffff"; // Amarillo claro para las demás
+  }
+  // --- Función para determinar la opacidad del rectángulo ---
+  function getWeekRectOpacity(week) {
+    if (window.lastFlowMonth) {
+      const monthOfWeek = weekMonthMap[week - 1]?.month;
+      return monthOfWeek === window.lastFlowMonth ? 0.7 : 0.25;
+    }
+    return window.lastFlowWeek === week ? 0.7 : 0.25;
+  }
+
+  // --- Grupo para highlights ---
+  const highlightGroup = svg.append("g").attr("class", "highlight-group");
+
+  // --- Rectángulos de semana ---
+  const weekRectGap = 1;
+  highlightGroup
+    .selectAll(".week-rect")
+    .data(lineData)
+    .enter()
+    .append("rect")
+    .attr("class", "week-rect")
+    .attr("x", (d) => x(d.week) - (x(2) - x(1)) / 2 + weekRectGap / 2)
+    .attr("y", margin.top)
+    .attr("width", x(2) - x(1) - weekRectGap)
+    .attr("height", height - margin.top - margin.bottom)
+    .attr("fill", (d) => getWeekRectColor(d.week))
+    .attr("opacity", (d) => getWeekRectOpacity(d.week))
+    .attr("cursor", "pointer")
+    .on("click", function (event, d) {
+      window.lastFlowWeek = d.week;
+      window.lastFlowMonth = 0; // Resetear mes al seleccionar semana
+      updateLineChartHighlights();
+      createWeekButtons(d.week); // Actualizar botones de semana
+      if (window.lastFlowFips) loadFlowDiagram(window.lastFlowFips, d.week); // Actualizar diagrama de flujo
+      filterByWeek(d.week); // Filtrar cubos
+      if (window.highlightRadialWeek) window.highlightRadialWeek(d.week); // Actualizar radar
+    });
+
+  // --- Triángulo de selección de semana ---
+  function updateWeekTriangle() {
+    highlightGroup.selectAll(".week-triangle").remove();
+    if (window.lastFlowWeek) {
+      const selectedWeek = window.lastFlowWeek;
+      const rectX = x(selectedWeek) - (x(2) - x(1)) / 2 + weekRectGap / 2;
+      const rectWidth = x(2) - x(1) - weekRectGap;
+      const centerX = rectX + rectWidth / 2;
+      const triangleHeight = 14;
+      const triangleWidth = 18;
+      const triangleY = margin.top - triangleHeight - 2;
+      highlightGroup
+        .append("polygon")
+        .attr("class", "week-triangle")
+        .attr(
+          "points",
+          `
+          ${centerX - triangleWidth / 2},${triangleY}
+          ${centerX + triangleWidth / 2},${triangleY}
+          ${centerX},${triangleY + triangleHeight}
+        `
+        )
+        .attr("fill", "#FBC02D")
+        .attr("stroke", "#B8860B")
+        .attr("stroke-width", 1.2);
+    }
+  }
+
+  // --- Función para actualizar resaltado ---
+  window.updateLineChartHighlights = function () {
+    highlightGroup
+      .selectAll(".week-rect")
+      .attr("fill", (d) => getWeekRectColor(d.week))
+      .attr("opacity", (d) => getWeekRectOpacity(d.week));
+    updateWeekTriangle();
+  };
+
+  // Llamar inicialmente para dibujar el triángulo
+  updateWeekTriangle();
+
   // Ejes
   svg
     .append("g")
@@ -1784,6 +2269,7 @@ async function renderDoubleLineChart(fips) {
     .attr("text-anchor", "end")
     .attr("font-size", "13px")
     .text("Movilidad neta (% población)");
+
   // Línea de casos
   svg
     .append("path")
@@ -1799,6 +2285,7 @@ async function renderDoubleLineChart(fips) {
         .y((d) => yLeft(d.casos))
         .curve(d3.curveMonotoneX)
     );
+
   // Línea de movilidad neta normalizada
   svg
     .append("path")
@@ -1815,6 +2302,7 @@ async function renderDoubleLineChart(fips) {
         .y((d) => yRight(d.netaPercent))
         .curve(d3.curveMonotoneX)
     );
+
   // Leyenda
   const legend = container
     .append("div")
@@ -1827,14 +2315,118 @@ async function renderDoubleLineChart(fips) {
     .style("display", "flex")
     .style("align-items", "center")
     .html(
-      `<span style=\"display:inline-block;width:16px;height:3px;background:#8E44AD;margin-right:4px;\"></span><span style=\"font-size:13px;\">Casos</span>`
+      `<span style="display:inline-block;width:16px;height:3px;background:#8E44AD;margin-right:4px;"></span><span style="font-size:13px;">Casos</span>`
     );
   legend
     .append("div")
     .style("display", "flex")
     .style("align-items", "center")
     .html(
-      `<span style=\"display:inline-block;width:16px;height:3px;background:#F4D03F;margin-right:4px;border-bottom:2px dashed #F4D03F;\"></span><span style=\"font-size:13px;\">Movilidad neta (% población)</span>`
+      `<span style="display:inline-block;width:16px;height:3px;background:#F4D03F;margin-right:4px;border-bottom:2px dashed #F4D03F;"></span><span style="font-size:13px;">Movilidad neta (% población)</span>`
     );
 }
 // Llama a drawTestCircle() al seleccionar un estado para probar el renderizado
+
+// --- INICIO: Refrescar colores de seleccionados al cambiar de semana ---
+function refreshSelectedFipsColors() {
+  if (!globalThis.selectedFipsSet) return;
+  for (const fips of globalThis.selectedFipsSet) {
+    highlightCountyByFips(fips, true);
+  }
+}
+// --- FIN ---
+
+// Interceptar el cambio de semana en createWeekButtons para refrescar colores
+const originalCreateWeekButtons = window.createWeekButtons || createWeekButtons;
+window.createWeekButtons = function (selectedWeek) {
+  originalCreateWeekButtons(selectedWeek);
+  setTimeout(refreshSelectedFipsColors, 100); // Espera breve para asegurar que los botones y estado estén listos
+};
+
+// --- INICIO: Colorear todos los estados según la semana seleccionada ---
+async function colorAllStatesByWeek(week) {
+  geojsonLayer.eachLayer(async function (layer) {
+    const fips = String(layer.feature.properties.id).padStart(2, "0");
+    const type = "cases";
+    // Si ya tenemos el nivel en caché
+    if (
+      window.casesLevelCache &&
+      window.casesLevelCache[fips] &&
+      window.casesLevelCache[fips][week]
+    ) {
+      const level = window.casesLevelCache[fips][week];
+      layer.setStyle({
+        weight: 1,
+        color: "white",
+        fillOpacity: 0.7,
+        fillColor: getColor(level, type),
+      });
+    } else {
+      // Si no, hacemos fetch y actualizamos la caché
+      fetchCountyData(fips).then((data) => {
+        if (data && data.new_cases_category) {
+          const casesData = transformDataForChart(data.new_cases_category);
+          let weekIdx = 1;
+          const weekToLevel = {};
+          for (const { level, count } of casesData) {
+            for (let i = 0; i < count; i++) {
+              weekToLevel[weekIdx] = level;
+              weekIdx++;
+            }
+          }
+          window.casesLevelCache[fips] = weekToLevel;
+          const level = weekToLevel[week] || 1;
+          layer.setStyle({
+            weight: 1,
+            color: "white",
+            fillOpacity: 0.7,
+            fillColor: getColor(level, type),
+          });
+        } else {
+          layer.setStyle({
+            weight: 1,
+            color: "white",
+            fillOpacity: 0.7,
+            fillColor: getColor(1, type),
+          });
+        }
+      });
+    }
+  });
+}
+// --- FIN ---
+
+// Llamar a colorAllStatesByWeek(1) al cargar el mapa
+const originalLoadGeoJSON = loadGeoJSON;
+loadGeoJSON = function () {
+  originalLoadGeoJSON();
+  // Esperar a que el geojsonLayer esté listo
+  const interval = setInterval(() => {
+    if (geojsonLayer) {
+      colorAllStatesByWeek(1);
+      clearInterval(interval);
+    }
+  }, 100);
+};
+
+// Modificar createWeekButtons para colorear todos los estados al cambiar de semana
+const originalCreateWeekButtons2 = window.createWeekButtons;
+window.createWeekButtons = function (selectedWeek) {
+  originalCreateWeekButtons2(selectedWeek);
+  setTimeout(() => {
+    colorAllStatesByWeek(selectedWeek);
+    refreshSelectedFipsColors();
+  }, 100);
+};
+
+// Al seleccionar/deseleccionar, refresca todos los bordes de los seleccionados
+function refreshSelectedFipsBorders() {
+  geojsonLayer.eachLayer(function (layer) {
+    const fips = String(layer.feature.properties.id).padStart(2, "0");
+    if (globalThis.selectedFipsSet && globalThis.selectedFipsSet.has(fips)) {
+      highlightCountyByFips(fips, true);
+    } else {
+      highlightCountyByFips(fips, false);
+    }
+  });
+}

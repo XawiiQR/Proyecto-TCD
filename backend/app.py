@@ -10,7 +10,7 @@ CORS(app)  # ⚠️ Permitir todos los orígenes por ahora
 
 
 # Array de FIPS que deseas filtrar
-FIPS_deseados = [5, 9, 19, 20, 28, 32, 40, 41, 49]  # Este es el array global de FIPS
+FIPS_deseados = [1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 47, 48, 49, 50, 51, 53, 54, 55, 56]
 
 
 # Nueva ruta para obtener datos de columnas específicas de un dataset
@@ -386,6 +386,16 @@ def get_flujos(fips, week):
             right_on='FIPS'
         )
         flujos_in['Porcentaje'] = (flujos_in['Pop_flows'] / poblacion_fips * 100).round(4)
+        # Normalización Min-Max para flujos_in
+        if not flujos_in.empty:
+            min_in = flujos_in['Pop_flows'].min()
+            max_in = flujos_in['Pop_flows'].max()
+            if max_in > min_in:
+                flujos_in['Normalizado'] = (flujos_in['Pop_flows'] - min_in) / (max_in - min_in)
+            else:
+                flujos_in['Normalizado'] = 1.0
+        else:
+            flujos_in['Normalizado'] = []
 
         # --- Flujos de SALIDA ---
         flujos_out = df_week[(df_week['FIPS_O'] == fips) & (df_week['FIPS_D'].isin(FIPS_deseados))].copy()
@@ -395,25 +405,41 @@ def get_flujos(fips, week):
             right_on='FIPS'
         )
         flujos_out['Porcentaje'] = (flujos_out['Pop_flows'] / poblacion_fips * 100).round(4)
+        # Normalización Min-Max para flujos_out
+        if not flujos_out.empty:
+            min_out = flujos_out['Pop_flows'].min()
+            max_out = flujos_out['Pop_flows'].max()
+            if max_out > min_out:
+                flujos_out['Normalizado'] = (flujos_out['Pop_flows'] - min_out) / (max_out - min_out)
+            else:
+                flujos_out['Normalizado'] = 1.0
+        else:
+            flujos_out['Normalizado'] = []
         # Convertir a tipos nativos de Python
         response = {
             "fips": int(fips),
             "week": int(week),
             "poblacion": poblacion_fips,
-            "flujos_in": flujos_in[['FIPS_O', 'Pop_flows', 'Poblacion', 'Porcentaje', 'Lat', 'Long']]
+            "flujos_in": flujos_in[['FIPS_O', 'Pop_flows', 'Poblacion', 'Porcentaje', 'Lat', 'Long', 'Normalizado']]
                 .astype({
                     'FIPS_O': int,
                     'Pop_flows': float,
                     'Poblacion': int,
-                    'Porcentaje': float
+                    'Porcentaje': float,
+                    'Lat': float,
+                    'Long': float,
+                    'Normalizado': float
                 })
                 .to_dict('records'),
-            "flujos_out": flujos_out[['FIPS_D', 'Pop_flows', 'Poblacion', 'Porcentaje', 'Lat', 'Long']]
+            "flujos_out": flujos_out[['FIPS_D', 'Pop_flows', 'Poblacion', 'Porcentaje', 'Lat', 'Long', 'Normalizado']]
                 .astype({
                     'FIPS_D': int,
                     'Pop_flows': float,
                     'Poblacion': int,
-                    'Porcentaje': float
+                    'Porcentaje': float,
+                    'Lat': float,
+                    'Long': float,
+                    'Normalizado': float
                 })
                 .to_dict('records')
         }
@@ -440,6 +466,123 @@ def get_population():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+
+    
+
+
+
+from flask import request, jsonify, Response
+import pandas as pd
+
+@app.route("/post_mobilityDO", methods=["POST"])
+def post_mobilityDO():
+    # Especificar el nombre del archivo CSV
+    dataset_name = 'Movilidad2021.csv'  # Cambia esto por el nombre de tu archivo CSV
+    
+    try:
+        # Obtener el JSON del cuerpo de la solicitud
+        data = request.get_json()
+        FIPS_D = data["FIPS_D"]
+        week = data["week"]
+        
+        # Validar FIPS_D como entero
+        try:
+            FIPS_D = int(data['FIPS_D'])
+            if FIPS_D < 1:
+                return jsonify({"error": "FIPS_D debe ser un número entero positivo"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "FIPS_D debe ser un número entero válido"}), 400
+        
+        # Validar week como entero
+        try:
+            week = int(data['week'])
+            if week < 1:
+                return jsonify({"error": "La semana debe ser un número entero positivo"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "La semana debe ser un número entero válido"}), 400
+
+        # Leer el archivo CSV con Pandas
+        df = pd.read_csv(dataset_name)
+        
+        # Filtrar las filas donde FIPS_D y Week coincidan
+        filtered_df = df[
+            (df['FIPS_D'] == FIPS_D) & 
+            (df['Week'] == week)
+        ]
+        
+        if filtered_df.empty:
+            return jsonify({"error": f"No se encontraron datos de movilidad para la semana {week} con FIPS_D={FIPS_D}"}), 404
+        
+        # Ordenar por FIPS_D y Week
+        sorted_df = filtered_df.sort_values(by=['FIPS_D', 'Week'])
+        
+        # Seleccionar solo las columnas deseadas
+        result = sorted_df[['FIPS_O', 'Pop_flows']]
+        
+        # Convertir el DataFrame filtrado a JSON
+        data = result.to_json(orient='records', lines=False)
+        
+        # Retornar la respuesta con tipo de contenido 'application/json'
+        return Response(data, mimetype='application/json')
+        
+    except FileNotFoundError:
+        return jsonify({"error": f"Dataset '{dataset_name}' no encontrado"}), 404
+    except Exception as e:
+        return jsonify({"error": f"Error procesando los datos: {str(e)}"}), 500
+    
+
+from flask import request, jsonify, Response
+import pandas as pd
+
+@app.route("/post_mobility_by_weekdDO", methods=["POST"])
+def post_mobility_by_weekDO():
+    # Especificar el nombre del archivo CSV
+    dataset_name = 'Movilidad2021.csv'  # Cambia esto por el nombre de tu archivo CSV
+    
+    try:
+        # Obtener el JSON del cuerpo de la solicitud
+        data = request.get_json()
+        FIPS_D = data["FIPS_D"]
+        
+        # Validar FIPS_D como entero
+        try:
+            FIPS_D = int(data['FIPS_D'])
+            if FIPS_D < 1:
+                return jsonify({"error": "FIPS_D debe ser un número entero positivo"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "FIPS_D debe ser un número entero válido"}), 400
+
+        # Leer el archivo CSV con Pandas
+        df = pd.read_csv(dataset_name)
+        
+        # Filtrar las filas donde FIPS_D coincida
+        filtered_df = df[df['FIPS_D'] == FIPS_D]
+        
+        if filtered_df.empty:
+            return jsonify({"error": f"No se encontraron datos de movilidad para FIPS_D={FIPS_D}"}), 404
+        
+        # Agrupar por Week y sumar Pop_flows
+        grouped_df = filtered_df.groupby('Week')['Pop_flows'].sum().reset_index()
+        
+        # Ordenar por Week
+        sorted_df = grouped_df.sort_values(by='Week')
+        
+        # Renombrar columnas para claridad (opcional)
+        result = sorted_df.rename(columns={'Week': 'week', 'Pop_flows': 'total_pop_flows'})
+        
+        # Convertir el DataFrame agrupado a JSON
+        data = result.to_json(orient='records', lines=False)
+        
+        # Retornar la respuesta con tipo de contenido 'application/json'
+        return Response(data, mimetype='application/json')
+        
+    except FileNotFoundError:
+        return jsonify({"error": f"Dataset '{dataset_name}' no encontrado"}), 404
+    except Exception as e:
+        return jsonify({"error": f"Error procesando los datos: {str(e)}"}), 500
+    
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
     app.run(host="0.0.0.0", port=port)
