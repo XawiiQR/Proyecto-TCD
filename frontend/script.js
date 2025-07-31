@@ -856,7 +856,7 @@ function renderFlowDiagram(vizContainer, data, week) {
   console.log(
     `Semana: ${week}, Enlaces creados: ${links.length}, Nodos: ${nodes.length}`
   );
-
+/*
   // --- NUEVO: Mostrar información de neto de estados conectados ---
   const netInfoContainer = d3
     .select("#flow-diagram-container")
@@ -943,7 +943,7 @@ function renderFlowDiagram(vizContainer, data, week) {
       .style("color", "#6c757d")
       .style("font-style", "italic")
       .text("No hay estados conectados con movilidad <100% en esta semana.");
-  }
+  }*/
 }
 
 // Resto de funciones (sin cambios significativos)
@@ -2058,7 +2058,88 @@ async function renderStreamgraph(fips) {
 }
 // Llama a renderStreamgraph(fips) al seleccionar un estado
 
-// Gráfico de líneas doble para casos y movilidad neta
+// Función auxiliar para obtener y filtrar datos de movilidad neta de vecinos
+async function fetchFilteredNetMobility(fips, weeks) {
+  // Obtener los 10 vecinos más cercanos
+  const neighborResponse = await fetch("http://127.0.0.1:5050/get_neighbors", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ FIPS: parseInt(fips) }),
+  });
+  const neighborData = await neighborResponse.json();
+  if (neighborData.error) {
+    console.error("Error fetching neighbors:", neighborData.error);
+    return weeks.map((week) => ({ week, netaPercent: null }));
+  }
+
+  const neighborFipsSet = new Set(neighborData.Neighbors.map((n) => String(n.FIPS).padStart(2, "0")));
+
+  // Obtener datos de movilidad para cada semana
+  const netMobilityData = await Promise.all(
+    weeks.map(async (week) => {
+      const cacheKey = `${fips}-${week}`;
+      let data;
+
+      // Usar caché si está disponible
+      if (flowDataCache.has(cacheKey)) {
+        data = flowDataCache.get(cacheKey);
+      } else {
+        const resp = await fetch(`http://localhost:5050/api/flujos/${fips}/${week}`);
+        data = await resp.json();
+        flowDataCache.set(cacheKey, data);
+      }
+
+      // Procesar flujos para calcular movilidad neta de vecinos
+      const connectedStatesNet = {};
+
+      // Procesar flujos de entrada
+      (data.flujos_in || []).forEach((d) => {
+        const fipsOrigin = String(d.FIPS_O).padStart(2, "0");
+        if (neighborFipsSet.has(fipsOrigin) && d.Porcentaje > 0.0) {
+          connectedStatesNet[fipsOrigin] = {
+            inflow: d.Porcentaje,
+            outflow: 0,
+            net: d.Porcentaje,
+          };
+        }
+      });
+
+      // Procesar flujos de salida
+      (data.flujos_out || []).forEach((d) => {
+        const fipsDest = String(d.FIPS_D).padStart(2, "0");
+        if (neighborFipsSet.has(fipsDest) && d.Porcentaje > 0.0) {
+          if (connectedStatesNet[fipsDest]) {
+            connectedStatesNet[fipsDest].outflow = d.Porcentaje;
+            connectedStatesNet[fipsDest].net = connectedStatesNet[fipsDest].inflow - d.Porcentaje;
+          } else {
+            connectedStatesNet[fipsDest] = {
+              inflow: 0,
+              outflow: d.Porcentaje,
+              net: -d.Porcentaje,
+            };
+          }
+        }
+      });
+
+      // Filtrar estados con |net| > 1.0% y sumar
+      let totalNet = 0;
+      Object.values(connectedStatesNet).forEach((state) => {
+        if (Math.abs(state.net) > 0.01) { // |net| > 1.0% (0.01 en fracción)
+          totalNet += state.net;
+        }
+      });
+
+      return {
+        week,
+        netaPercent: totalNet !== 0 ? totalNet * 100 : null, // Convertir a porcentaje
+      };
+    })
+  );
+
+  return netMobilityData;
+}
+
+// Gráfico de líneas doble para casos y movilidad neta (actualizado)
 async function renderDoubleLineChart(fips) {
   let container = d3.select("#streamgraph-container");
   if (container.empty()) {
@@ -2079,31 +2160,13 @@ async function renderDoubleLineChart(fips) {
   // Prepara array de semanas
   const weeks = Array.from({ length: 52 }, (_, i) => i + 1);
 
-  // Obtén datos de movilidad neta normalizada por semana
-  const netMobilityData = await Promise.all(
-    weeks.map(async (week) => {
-      const resp = await fetch(
-        `http://localhost:5050/api/flujos/${fips}/${week}`
-      );
-      const data = await resp.json();
-      const inflowPercent = (data.flujos_in || []).reduce(
-        (sum, d) => sum + (d.Porcentaje || 0),
-        0
-      );
-      const outflowPercent = (data.flujos_out || []).reduce(
-        (sum, d) => sum + (d.Porcentaje || 0),
-        0
-      );
-      const netaPercent = outflowPercent - inflowPercent;
-      return { week, netaPercent };
-    })
-  );
+  // Obtén datos de movilidad neta filtrada por vecinos con |net| > 1.0%
+  const netMobilityData = await fetchFilteredNetMobility(fips, weeks);
 
   // Unir datos por semana
   const lineData = weeks.map((week) => {
     const casos =
-      casesData.find((d) => parseInt(d.Week) === week)?.New_Cases_Normalized ||
-      0;
+      casesData.find((d) => parseInt(d.Week) === week)?.New_Cases_Normalized || 0;
     const netaPercent = netMobilityData[week - 1]?.netaPercent || 0;
     return { week, casos, netaPercent };
   });
@@ -2131,8 +2194,8 @@ async function renderDoubleLineChart(fips) {
   const yRight = d3
     .scaleLinear()
     .domain([
-      d3.min(lineData, (d) => d.netaPercent) * 1.1,
-      d3.max(lineData, (d) => d.netaPercent) * 1.1,
+      d3.min(lineData, (d) => d.netaPercent) * 1.1 || -1,
+      d3.max(lineData, (d) => d.netaPercent) * 1.1 || 1,
     ])
     .nice()
     .range([height - margin.bottom, margin.top]);
@@ -2145,7 +2208,7 @@ async function renderDoubleLineChart(fips) {
 
   function getWeekRectColor(week) {
     if (window.lastFlowWeek === week) {
-      return "#64b5f6"; // Naranja para la semana seleccionada
+      return "#64b5f6"; // Azul para la semana seleccionada
     }
     if (window.lastFlowMonth) {
       const monthOfWeek = weekMonthMap[week - 1]?.month;
@@ -2153,9 +2216,9 @@ async function renderDoubleLineChart(fips) {
         return "#BBDEFB"; // Azul claro para las semanas del mes seleccionado
       }
     }
-    return "#ffffff"; // Amarillo claro para las demás
+    return "#ffffff"; // Blanco para las demás
   }
-  // --- Función para determinar la opacidad del rectángulo ---
+
   function getWeekRectOpacity(week) {
     if (window.lastFlowMonth) {
       const monthOfWeek = weekMonthMap[week - 1]?.month;
@@ -2164,10 +2227,10 @@ async function renderDoubleLineChart(fips) {
     return window.lastFlowWeek === week ? 0.7 : 0.25;
   }
 
-  // --- Grupo para highlights ---
+  // Grupo para highlights
   const highlightGroup = svg.append("g").attr("class", "highlight-group");
 
-  // --- Rectángulos de semana ---
+  // Rectángulos de semana
   const weekRectGap = 1;
   highlightGroup
     .selectAll(".week-rect")
@@ -2192,7 +2255,7 @@ async function renderDoubleLineChart(fips) {
       if (window.highlightRadialWeek) window.highlightRadialWeek(d.week); // Actualizar radar
     });
 
-  // --- Triángulo de selección de semana ---
+  // Triángulo de selección de semana
   function updateWeekTriangle() {
     highlightGroup.selectAll(".week-triangle").remove();
     if (window.lastFlowWeek) {
@@ -2220,7 +2283,7 @@ async function renderDoubleLineChart(fips) {
     }
   }
 
-  // --- Función para actualizar resaltado ---
+  // Función para actualizar resaltado
   window.updateLineChartHighlights = function () {
     highlightGroup
       .selectAll(".week-rect")
@@ -2260,7 +2323,7 @@ async function renderDoubleLineChart(fips) {
       d3
         .axisRight(yRight)
         .ticks(6)
-        .tickFormat((d) => (d * 100).toFixed(2) + "%")
+        .tickFormat((d) => d.toFixed(2) + "%")
     )
     .append("text")
     .attr("fill", "#F4D03F")
@@ -2273,7 +2336,7 @@ async function renderDoubleLineChart(fips) {
   // Línea de casos
   svg
     .append("path")
-    .datum(lineData)
+    .datum(lineData.filter((d) => d.casos !== null))
     .attr("fill", "none")
     .attr("stroke", "#8E44AD")
     .attr("stroke-width", 2.5)
@@ -2289,7 +2352,7 @@ async function renderDoubleLineChart(fips) {
   // Línea de movilidad neta normalizada
   svg
     .append("path")
-    .datum(lineData)
+    .datum(lineData.filter((d) => d.netaPercent !== null))
     .attr("fill", "none")
     .attr("stroke", "#F4D03F")
     .attr("stroke-width", 2.5)

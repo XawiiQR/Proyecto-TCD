@@ -5,9 +5,9 @@ import os
 import pandas as pd
 import geopandas as gpd
 from AED import filtrar_datos, reduce_to_consecutive_counts, get_categorized_arrays , get_name_states, get_Porcentajes , get_covid_week
+from math import radians, sin, cos, sqrt, atan2
 app = Flask(__name__)
 CORS(app)  # ⚠️ Permitir todos los orígenes por ahora
-
 
 # Array de FIPS que deseas filtrar
 FIPS_deseados = [1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 47, 48, 49, 50, 51, 53, 54, 55, 56]
@@ -532,8 +532,6 @@ def post_mobilityDO():
         return jsonify({"error": f"Error procesando los datos: {str(e)}"}), 500
     
 
-from flask import request, jsonify, Response
-import pandas as pd
 
 @app.route("/post_mobility_by_weekdDO", methods=["POST"])
 def post_mobility_by_weekDO():
@@ -582,6 +580,81 @@ def post_mobility_by_weekDO():
     except Exception as e:
         return jsonify({"error": f"Error procesando los datos: {str(e)}"}), 500
     
+
+
+
+
+# Función de Haversine para calcular la distancia entre dos puntos
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371  # Radio de la Tierra en km
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    return R * c
+
+# Ruta para obtener los vecinos de un FIPS
+@app.route("/get_neighbors", methods=["POST"])
+def get_neighbors():
+    # Especificar el nombre del archivo CSV
+    dataset_name = 'Demografia2021.csv'  # Cambia esto por el nombre de tu archivo CSV
+    
+    try:
+        # Obtener el JSON del cuerpo de la solicitud
+        data = request.get_json()
+        FIPS = data["FIPS"]
+        
+        # Validar FIPS como entero
+        try:
+            FIPS = int(data['FIPS'])
+            if FIPS < 1:
+                return jsonify({"error": "FIPS debe ser un número entero positivo"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "FIPS debe ser un número entero válido"}), 400
+
+        # Leer el archivo CSV con Pandas
+        df = pd.read_csv(dataset_name)
+        
+        # Verificar si el FIPS existe en el dataset
+        target = df[df['FIPS'] == FIPS]
+        if target.empty:
+            return jsonify({"error": f"No se encontraron datos para FIPS={FIPS}"}), 404
+        
+        # Obtener las coordenadas del FIPS objetivo
+        lat1, lon1 = target.iloc[0]['Lat'], target.iloc[0]['Long']
+        
+        # Calcular distancias a todos los demás condados
+        distances = []
+        for _, row in df.iterrows():
+            if row['FIPS'] != FIPS:
+                lat2, lon2 = row['Lat'], row['Long']
+                dist = haversine(lat1, lon1, lat2, lon2)
+                distances.append({
+                    'FIPS': int(row['FIPS']),
+                    'Distance_km': dist,
+                    'Lat': row['Lat'],
+                    'Long': row['Long'],
+                    'Poblacion': int(row['Poblacion'])
+                })
+        
+        # Ordenar por distancia y tomar los k más cercanos
+        k = 10  # <--- AQUÍ PUEDES MODIFICAR LA CANTIDAD DE VECINOS
+        distances.sort(key=lambda x: x['Distance_km'])
+        neighbors = distances[:k]
+        
+        # Preparar la respuesta
+        result = {
+            'FIPS': FIPS,
+            'Neighbors': neighbors
+        }
+        
+        # Retornar la respuesta con tipo de contenido 'application/json'
+        return Response(jsonify(result).get_data(as_text=True), mimetype='application/json')
+        
+    except FileNotFoundError:
+        return jsonify({"error": f"Dataset '{dataset_name}' no encontrado"}), 404
+    except Exception as e:
+        return jsonify({"error": f"Error procesando los datos: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))

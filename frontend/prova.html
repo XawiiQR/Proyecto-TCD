@@ -1,169 +1,429 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mobility Histogram</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movilidad Neta, Llegadas y Salidas de Vecinos</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-      }
-      .error {
-        color: red;
-        display: none;
-      }
-      .histogram {
-        margin-top: 20px;
-      }
-      .bar {
-        fill: steelblue;
-      }
-      .bar:hover {
-        fill: orange;
-      }
-      .axis text {
-        font-size: 12px;
-      }
-      .axis path,
-      .axis line {
-        fill: none;
-        stroke: #000;
-        shape-rendering: crispEdges;
-      }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 15px;
+            border: 1px solid #ccc;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        input, select, button {
+            padding: 5px;
+            margin-right: 10px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        #error-message {
+            color: red;
+            margin-top: 10px;
+        }
+        #net-chart, #inflow-chart, #outflow-chart {
+            margin-top: 20px;
+        }
+        .net-line {
+            fill: none;
+            stroke: #007bff;
+            stroke-width: 2px;
+        }
+        .inflow-line {
+            fill: none;
+            stroke: #28a745;
+            stroke-width: 2px;
+        }
+        .outflow-line {
+            fill: none;
+            stroke: #ff7f0e;
+            stroke-width: 2px;
+        }
+        .zero-line {
+            stroke: #000;
+            stroke-width: 1px;
+            stroke-dasharray: 5,5;
+        }
+        .net-dot {
+            fill: #007bff;
+        }
+        .inflow-dot {
+            fill: #28a745;
+        }
+        .outflow-dot {
+            fill: #ff7f0e;
+        }
+        .chart-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
     </style>
-  </head>
-  <body>
-    <h1>Mobility Flows Histogram</h1>
-    <div>
-      <label for="fips_d">Enter FIPS_D:</label>
-      <input type="number" id="fips_d" min="1" required />
-      <button onclick="fetchData()">Generate Histogram</button>
+</head>
+<body>
+    <div class="container">
+        <div class="form-group">
+            <label for="fips-input">FIPS:</label>
+            <input type="number" id="fips-input" placeholder="Ejemplo: 1" required min="1">
+            <label for="week-select">Semana:</label>
+            <select id="week-select"></select>
+            <button onclick="fetchData()">Consultar</button>
+        </div>
+        <div id="neighbor-table"></div>
+        <div id="net-chart">
+            <div class="chart-title">Movilidad Neta Total (> |1.0%|)</div>
+        </div>
+        <div id="inflow-chart">
+            <div class="chart-title">Llegadas Totales (> 1.0%)</div>
+        </div>
+        <div id="outflow-chart">
+            <div class="chart-title">Salidas Totales (> 1.0%)</div>
+        </div>
+        <div id="error-message"></div>
     </div>
-    <div id="error" class="error"></div>
-    <div id="histogram" class="histogram"></div>
 
     <script>
-      async function fetchData() {
-        const fips_d = document.getElementById("fips_d").value;
-        const errorDiv = document.getElementById("error");
-        const histogramDiv = document.getElementById("histogram");
+        // Diccionario FIPS->nombre de estado
+        const FIPS_TO_STATE = {
+            "01": "Alabama", "02": "Alaska", "04": "Arizona", "05": "Arkansas", "06": "California",
+            "08": "Colorado", "09": "Connecticut", "10": "Delaware", "11": "District of Columbia",
+            "12": "Florida", "13": "Georgia", "15": "Hawaii", "16": "Idaho", "17": "Illinois",
+            "18": "Indiana", "19": "Iowa", "20": "Kansas", "21": "Kentucky", "22": "Louisiana",
+            "23": "Maine", "24": "Maryland", "25": "Massachusetts", "26": "Michigan", "27": "Minnesota",
+            "28": "Mississippi", "29": "Missouri", "30": "Montana", "31": "Nebraska", "32": "Nevada",
+            "33": "New Hampshire", "34": "New Jersey", "35": "New Mexico", "36": "New York",
+            "37": "North Carolina", "38": "North Dakota", "39": "Ohio", "40": "Oklahoma", "41": "Oregon",
+            "42": "Pennsylvania", "44": "Rhode Island", "45": "South Carolina", "46": "South Dakota",
+            "47": "Tennessee", "48": "Texas", "49": "Utah", "50": "Vermont", "51": "Virginia",
+            "53": "Washington", "54": "West Virginia", "55": "Wisconsin", "56": "Wyoming"
+        };
 
-        // Clear previous content
-        errorDiv.style.display = "none";
-        errorDiv.textContent = "";
-        histogramDiv.innerHTML = "";
-
-        // Validate input
-        if (!fips_d || fips_d < 1) {
-          errorDiv.textContent =
-            "Please enter a valid positive integer for FIPS_D";
-          errorDiv.style.display = "block";
-          return;
-        }
-
-        try {
-          const response = await fetch(
-            "http://localhost:5050/post_mobility_by_weekdDO",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ FIPS_D: parseInt(fips_d) }),
+        // Generar opciones para el selector de semanas
+        function populateWeekSelect() {
+            const weekSelect = document.getElementById("week-select");
+            for (let i = 1; i <= 52; i++) {
+                const option = document.createElement("option");
+                option.value = i;
+                option.textContent = `Semana ${i}`;
+                if (i === 1) option.selected = true;
+                weekSelect.appendChild(option);
             }
-          );
-
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || "Failed to fetch data");
-          }
-
-          const data = await response.json();
-          if (data.length === 0) {
-            errorDiv.textContent = "No data returned for the specified FIPS_D";
-            errorDiv.style.display = "block";
-            return;
-          }
-
-          // Create histogram
-          drawHistogram(data);
-        } catch (error) {
-          errorDiv.textContent = `Error: ${error.message}`;
-          errorDiv.style.display = "block";
         }
-      }
 
-      function drawHistogram(data) {
-        // Set dimensions and margins
-        const margin = { top: 20, right: 30, bottom: 50, left: 50 };
-        const width = 800 - margin.left - margin.right;
-        const height = 400 - margin.top - margin.bottom;
+        // Función para manejar errores
+        function showError(message) {
+            d3.select("#error-message").text(message);
+            d3.select("#neighbor-table").html("");
+            d3.select("#net-chart").html("");
+            d3.select("#inflow-chart").html("");
+            d3.select("#outflow-chart").html("");
+        }
 
-        // Create SVG container
-        const svg = d3
-          .select("#histogram")
-          .append("svg")
-          .attr("width", width + margin.left + margin.right)
-          .attr("height", height + margin.top + margin.bottom)
-          .append("g")
-          .attr("transform", `translate(${margin.left},${margin.top})`);
+        // Función para renderizar la tabla
+        function renderTable(neighborFips, flowData) {
+            const container = d3.select("#neighbor-table");
+            container.html("");
 
-        // Set scales
-        const x = d3
-          .scaleBand()
-          .domain(data.map((d) => d.week))
-          .range([0, width])
-          .padding(0.1);
+            const neighborFipsSet = new Set(neighborFips.map(f => String(f.FIPS).padStart(2, "0")));
+            const connectedStatesNet = {};
 
-        const y = d3
-          .scaleLinear()
-          .domain([0, d3.max(data, (d) => d.total_pop_flows)])
-          .nice()
-          .range([height, 0]);
+            // Procesar flujos de entrada
+            (flowData.flujos_in || []).forEach(d => {
+                const fips = String(d.FIPS_O).padStart(2, "0");
+                if (neighborFipsSet.has(fips) && d.Porcentaje > 0.0) {
+                    connectedStatesNet[fips] = {
+                        fips,
+                        stateName: FIPS_TO_STATE[fips] || `FIPS ${fips}`,
+                        inflow: d.Porcentaje,
+                        outflow: 0,
+                        net: d.Porcentaje
+                    };
+                }
+            });
 
-        // Draw bars
-        svg
-          .selectAll(".bar")
-          .data(data)
-          .enter()
-          .append("rect")
-          .attr("class", "bar")
-          .attr("x", (d) => x(d.week))
-          .attr("y", (d) => y(d.total_pop_flows))
-          .attr("width", x.bandwidth())
-          .attr("height", (d) => height - y(d.total_pop_flows));
+            // Procesar flujos de salida
+            (flowData.flujos_out || []).forEach(d => {
+                const fips = String(d.FIPS_D).padStart(2, "0");
+                if (neighborFipsSet.has(fips) && d.Porcentaje > 0.0) {
+                    if (connectedStatesNet[fips]) {
+                        connectedStatesNet[fips].outflow = d.Porcentaje;
+                        connectedStatesNet[fips].net = connectedStatesNet[fips].inflow - d.Porcentaje;
+                    } else {
+                        connectedStatesNet[fips] = {
+                            fips,
+                            stateName: FIPS_TO_STATE[fips] || `FIPS ${fips}`,
+                            inflow: 0,
+                            outflow: d.Porcentaje,
+                            net: -d.Porcentaje
+                        };
+                    }
+                }
+            });
 
-        // Add X axis
-        svg
-          .append("g")
-          .attr("class", "axis")
-          .attr("transform", `translate(0,${height})`)
-          .call(d3.axisBottom(x))
-          .selectAll("text")
-          .attr("transform", "rotate(-45)")
-          .style("text-anchor", "end");
+            // Ordenar por valor absoluto del neto
+            const sortedConnectedStates = Object.values(connectedStatesNet).sort(
+                (a, b) => Math.abs(b.net) - Math.abs(a.net)
+            );
 
-        // Add Y axis
-        svg.append("g").attr("class", "axis").call(d3.axisLeft(y));
+            if (sortedConnectedStates.length === 0) {
+                container.append("p").text("No hay estados vecinos con movilidad significativa.");
+                return;
+            }
 
-        // Add labels
-        svg
-          .append("text")
-          .attr("x", width / 2)
-          .attr("y", height + margin.bottom - 10)
-          .style("text-anchor", "middle")
-          .text("Week");
+            const table = container.append("table");
+            const header = table.append("thead").append("tr");
+            header.selectAll("th")
+                .data(["Estado", "Entrada (%)", "Salida (%)", "Neto (%)"])
+                .enter()
+                .append("th")
+                .text(d => d);
 
-        svg
-          .append("text")
-          .attr("x", -height / 2)
-          .attr("y", -margin.left + 20)
-          .attr("transform", "rotate(-90)")
-          .style("text-anchor", "middle")
-          .text("Total Population Flows");
-      }
+            const tbody = table.append("tbody");
+            const rows = tbody.selectAll("tr")
+                .data(sortedConnectedStates)
+                .enter()
+                .append("tr");
+
+            rows.append("td").text(d => d.stateName);
+            rows.append("td").text(d => (d.inflow > 0 ? (d.inflow * 100).toFixed(2) : "-"));
+            rows.append("td").text(d => (d.outflow > 0 ? (d.outflow * 100).toFixed(2) : "-"));
+            rows.append("td").text(d => (d.net * 100).toFixed(2));
+        }
+
+        // Función para renderizar un gráfico de líneas
+        function renderLineChart(containerId, data, lineClass, dotClass, title, showZeroLine = false) {
+            const container = d3.select(`#${containerId}`);
+            container.html("");
+            container.append("div").attr("class", "chart-title").text(title);
+
+            // Filtrar datos para incluir solo semanas con valores válidos
+            const filteredData = data.filter(d => d.value !== null);
+
+            if (filteredData.length === 0) {
+                container.append("p").text(`No hay semanas con datos que cumplan el criterio para ${title.toLowerCase()}.`);
+                return;
+            }
+
+            const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+            const width = 600 - margin.left - margin.right;
+            const height = 300 - margin.top - margin.bottom;
+
+            const svg = container.append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Escala X (semanas)
+            const x = d3.scaleLinear()
+                .domain([1, 52])
+                .range([0, width]);
+
+            // Escala Y
+            const yMax = d3.max(filteredData, d => Math.abs(d.value)) || 1;
+            const yDomain = showZeroLine ? [-yMax * 1.1, yMax * 1.1] : [0, yMax * 1.1];
+            const y = d3.scaleLinear()
+                .domain(yDomain)
+                .range([height, 0]);
+
+            // Eje X
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x).ticks(52).tickFormat(d3.format("d")))
+                .selectAll("text")
+                .style("font-size", "10px");
+
+            // Eje Y
+            svg.append("g")
+                .call(d3.axisLeft(y).ticks(10))
+                .selectAll("text")
+                .style("font-size", "10px");
+
+            // Línea de cero (solo para el gráfico de neto)
+            if (showZeroLine) {
+                svg.append("line")
+                    .attr("class", "zero-line")
+                    .attr("x1", 0)
+                    .attr("x2", width)
+                    .attr("y1", y(0))
+                    .attr("y2", y(0));
+            }
+
+            // Línea de datos
+            const line = d3.line()
+                .x(d => x(d.week))
+                .y(d => y(d.value))
+                .defined(d => d.value !== null);
+
+            svg.append("path")
+                .datum(filteredData)
+                .attr("class", lineClass)
+                .attr("d", line);
+
+            // Puntos en cada semana
+            svg.selectAll(`.${dotClass}`)
+                .data(filteredData)
+                .enter()
+                .append("circle")
+                .attr("class", dotClass)
+                .attr("cx", d => x(d.week))
+                .attr("cy", d => y(d.value))
+                .attr("r", 3);
+        }
+
+        // Función para obtener datos y renderizar
+        async function fetchData() {
+            const fips = document.getElementById("fips-input").value;
+            const week = document.getElementById("week-select").value;
+
+            if (!fips || fips < 1) {
+                showError("Por favor, ingrese un FIPS válido.");
+                return;
+            }
+
+            try {
+                // Obtener vecinos
+                const neighborResponse = await fetch("http://127.0.0.1:5050/get_neighbors", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ FIPS: parseInt(fips) })
+                });
+                const neighborData = await neighborResponse.json();
+                if (neighborData.error) {
+                    showError(neighborData.error);
+                    return;
+                }
+
+                // Obtener datos de flujos para la semana seleccionada (para la tabla)
+                const flowResponse = await fetch(`http://localhost:5050/api/flujos/${fips}/${week}`);
+                const flowData = await flowResponse.json();
+                if (flowData.error) {
+                    showError(flowData.error);
+                    return;
+                }
+
+                // Renderizar tabla
+                renderTable(neighborData.Neighbors, flowData);
+
+                // Obtener datos de flujos para todas las semanas (para los gráficos)
+                const netData = [];
+                const inflowData = [];
+                const outflowData = [];
+                for (let w = 1; w <= 52; w++) {
+                    const response = await fetch(`http://localhost:5050/api/flujos/${fips}/${w}`);
+                    const data = await response.json();
+                    if (data.error) {
+                        netData.push({ week: w, value: null });
+                        inflowData.push({ week: w, value: null });
+                        outflowData.push({ week: w, value: null });
+                        continue;
+                    }
+
+                    const neighborFipsSet = new Set(neighborData.Neighbors.map(f => String(f.FIPS).padStart(2, "0")));
+                    const connectedStatesNet = {};
+
+                    // Procesar flujos de entrada
+                    (data.flujos_in || []).forEach(d => {
+                        const fips = String(d.FIPS_O).padStart(2, "0");
+                        if (neighborFipsSet.has(fips) && d.Porcentaje > 0.0) {
+                            connectedStatesNet[fips] = {
+                                fips,
+                                inflow: d.Porcentaje,
+                                outflow: 0,
+                                net: d.Porcentaje
+                            };
+                        }
+                    });
+
+                    // Procesar flujos de salida
+                    (data.flujos_out || []).forEach(d => {
+                        const fips = String(d.FIPS_D).padStart(2, "0");
+                        if (neighborFipsSet.has(fips) && d.Porcentaje > 0.0) {
+                            if (connectedStatesNet[fips]) {
+                                connectedStatesNet[fips].outflow = d.Porcentaje;
+                                connectedStatesNet[fips].net = connectedStatesNet[fips].inflow - d.Porcentaje;
+                            } else {
+                                connectedStatesNet[fips] = {
+                                    fips,
+                                    inflow: 0,
+                                    outflow: d.Porcentaje,
+                                    net: -d.Porcentaje
+                                };
+                            }
+                        }
+                    });
+
+                    // Calcular movilidad neta total (solo estados con |net| > 1.0%)
+                    let totalNet = 0;
+                    Object.values(connectedStatesNet).forEach(state => {
+                        if (Math.abs(state.net * 100) > 1.0) {
+                            totalNet += state.net;
+                        }
+                    });
+                    netData.push({ week: w, value: totalNet !== 0 ? totalNet * 100 : null });
+
+                    // Calcular llegadas totales (solo estados con inflow > 1.0%)
+                    let totalInflow = 0;
+                    Object.values(connectedStatesNet).forEach(state => {
+                        if (state.inflow * 100 > 1.0) {
+                            totalInflow += state.inflow;
+                        }
+                    });
+                    inflowData.push({ week: w, value: totalInflow !== 0 ? totalInflow * 100 : null });
+
+                    // Calcular salidas totales (solo estados con outflow > 1.0%)
+                    let totalOutflow = 0;
+                    Object.values(connectedStatesNet).forEach(state => {
+                        if (state.outflow * 100 > 1.0) {
+                            totalOutflow += state.outflow;
+                        }
+                    });
+                    outflowData.push({ week: w, value: totalOutflow !== 0 ? totalOutflow * 100 : null });
+                }
+
+                // Renderizar gráficos de líneas
+                renderLineChart("net-chart", netData, "net-line", "net-dot", "Movilidad Neta Total (> |1.0%|)", true);
+                renderLineChart("inflow-chart", inflowData, "inflow-line", "inflow-dot", "Llegadas Totales (> 1.0%)", false);
+                renderLineChart("outflow-chart", outflowData, "outflow-line", "outflow-dot", "Salidas Totales (> 1.0%)", false);
+            } catch (error) {
+                showError("Error al cargar los datos: " + error.message);
+            }
+        }
+
+        // Inicializar selector de semanas
+        populateWeekSelect();
     </script>
-  </body>
+</body>
 </html>
