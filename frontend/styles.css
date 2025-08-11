@@ -37,15 +37,15 @@ header h1 {
   font-size: 1.4em;
 }
 
-/* Contenedor principal */
+/* Contenedor principal 
 #main-container {
   display: flex;
   flex-direction: column;
   padding: 10px;
-  min-height: 100vh; /* Allow page to expand beyond viewport */
+  min-height: 100vh; 
 }
-
-/* Contenedor del mapa */
+*/
+/* Contenedor del mapa 
 #map-container {
   display: flex;
   flex-direction: row;
@@ -79,7 +79,7 @@ header h1 {
   justify-content: center;
   align-items: center;
 }
-
+*/
 /* Controles */
 #controls {
   padding: 15px;
@@ -417,15 +417,16 @@ header h1 {
   font-size: 1.2em;
 }
 
+/*
 .link--in {
   stroke: #1f77b4;
   stroke-opacity: 0.7;
 }
-
 .link--out {
   stroke: #2ca02c;
   stroke-opacity: 0.7;
 }
+*/
 
 .node text {
   font-size: 12px;
@@ -505,6 +506,5 @@ header h1 {
   display: block;
   margin: 0 auto;
   max-width: 100%;
-  min-width: 300px;
-  aspect-ratio: 14/6;
+  aspect-ratio: 4/6;
 }

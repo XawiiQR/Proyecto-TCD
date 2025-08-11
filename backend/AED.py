@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 # Array de FIPS que deseas filtrar
-FIPS_deseados = [5, 9, 19, 20, 28, 32, 40, 41, 49]  # Este es el array global de FIPS
+FIPS_deseados = [1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 47, 48, 49, 50, 51, 53, 54, 55, 56]
 
 def filtrar_datos(fips):
     # Cargar los datos desde el archivo CSV
@@ -20,31 +20,34 @@ def filtrar_datos(fips):
     # Crear las categorías para los datos normalizados
     covidFipsFinal = covidFips[['FIPS', 'Week']].copy()
 
-    # Crear nuevas columnas categorizadas según los valores normalizados
+    # Crear nuevas columnas categorizadas según los valores normalizados (5 niveles)
     covidFipsFinal.loc[:, 'New_Cases_Category'] = np.select(
-        [covidFips['New_Cases_Normalized'] < 0.25, 
-         (covidFips['New_Cases_Normalized'] >= 0.25) & (covidFips['New_Cases_Normalized'] < 0.50),
-         (covidFips['New_Cases_Normalized'] >= 0.50) & (covidFips['New_Cases_Normalized'] < 0.75),
-         covidFips['New_Cases_Normalized'] >= 0.75],
-        [1, 2, 3, 4], 
+        [covidFips['New_Cases_Normalized'] < 0.2, 
+         (covidFips['New_Cases_Normalized'] >= 0.2) & (covidFips['New_Cases_Normalized'] < 0.4),
+         (covidFips['New_Cases_Normalized'] >= 0.4) & (covidFips['New_Cases_Normalized'] < 0.6),
+         (covidFips['New_Cases_Normalized'] >= 0.6) & (covidFips['New_Cases_Normalized'] < 0.8),
+         covidFips['New_Cases_Normalized'] >= 0.8],
+        [1, 2, 3, 4, 5], 
         default=np.nan
     )
 
     covidFipsFinal.loc[:, 'New_Deaths_Category'] = np.select(
-        [covidFips['New_Deaths_Normalized'] < 0.25, 
-         (covidFips['New_Deaths_Normalized'] >= 0.25) & (covidFips['New_Deaths_Normalized'] < 0.50),
-         (covidFips['New_Deaths_Normalized'] >= 0.50) & (covidFips['New_Deaths_Normalized'] < 0.75),
-         covidFips['New_Deaths_Normalized'] >= 0.75],
-        [1, 2, 3, 4], 
+        [covidFips['New_Deaths_Normalized'] < 0.2, 
+         (covidFips['New_Deaths_Normalized'] >= 0.2) & (covidFips['New_Deaths_Normalized'] < 0.4),
+         (covidFips['New_Deaths_Normalized'] >= 0.4) & (covidFips['New_Deaths_Normalized'] < 0.6),
+         (covidFips['New_Deaths_Normalized'] >= 0.6) & (covidFips['New_Deaths_Normalized'] < 0.8),
+         covidFips['New_Deaths_Normalized'] >= 0.8],
+        [1, 2, 3, 4, 5], 
         default=np.nan
     )
 
     covidFipsFinal.loc[:, 'Susceptible_Category'] = np.select(
-        [covidFips['Susceptible_Normalized'] < 0.25, 
-         (covidFips['Susceptible_Normalized'] >= 0.25) & (covidFips['Susceptible_Normalized'] < 0.50),
-         (covidFips['Susceptible_Normalized'] >= 0.50) & (covidFips['Susceptible_Normalized'] < 0.75),
-         covidFips['Susceptible_Normalized'] >= 0.75],
-        [1, 2, 3, 4], 
+        [covidFips['Susceptible_Normalized'] < 0.2, 
+         (covidFips['Susceptible_Normalized'] >= 0.2) & (covidFips['Susceptible_Normalized'] < 0.4),
+         (covidFips['Susceptible_Normalized'] >= 0.4) & (covidFips['Susceptible_Normalized'] < 0.6),
+         (covidFips['Susceptible_Normalized'] >= 0.6) & (covidFips['Susceptible_Normalized'] < 0.8),
+         covidFips['Susceptible_Normalized'] >= 0.8],
+        [1, 2, 3, 4, 5], 
         default=np.nan
     )
     

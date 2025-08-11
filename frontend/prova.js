@@ -972,16 +972,30 @@ function setupMonthSlider() {
 
 // Funciones auxiliares
 function getColor(level, type) {
+  if (![1, 2, 3, 4, 5].includes(level)) level = 1;
   const colors = {
-    cases: { 1: "#85C1E9", 2: "#2471A3  ", 3: "#8E44AD ", 4: "#512E5F" },
-    deaths: { 1: "#F4D03F", 2: "#E67E22 ", 3: "#CB4335", 4: "#641E16" },
+    cases: {
+      1: "#85C1E9",
+      2: "#2471A3",
+      3: "#8E44AD",
+      4: "#512E5F",
+      5: "#2E1B47",
+    },
+    deaths: {
+      1: "#F4D03F",
+      2: "#E67E22",
+      3: "#CB4335",
+      4: "#641E16",
+      5: "#4A0E0E",
+    },
   };
   return colors[type][level] || "#999";
 }
 
 function transformDataForChart(categoryData) {
   return categoryData.map((item) => {
-    const [level, count] = item.split("_").map(Number);
+    let [level, count] = item.split("_").map(Number);
+    if (![1, 2, 3, 4, 5].includes(level)) level = 1;
     return { level, count };
   });
 }

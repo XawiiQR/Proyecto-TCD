@@ -1,114 +1,169 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Visualización de Datos COVID-19</title>
-    <link rel="stylesheet" href="styles.css" />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
-    />
+    <title>Mobility Histogram</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .error {
+        color: red;
+        display: none;
+      }
+      .histogram {
+        margin-top: 20px;
+      }
+      .bar {
+        fill: steelblue;
+      }
+      .bar:hover {
+        fill: orange;
+      }
+      .axis text {
+        font-size: 12px;
+      }
+      .axis path,
+      .axis line {
+        fill: none;
+        stroke: #000;
+        shape-rendering: crispEdges;
+      }
+    </style>
   </head>
   <body>
-    <header>
-      <h1>Visualización de Datos COVID-19 por Condado</h1>
-    </header>
-
-    <div id="main-container">
-      <!-- Contenedor del mapa y panel de gráficos -->
-      <div
-        id="map-container"
-        style="display: flex; justify-content: space-between"
-      >
-        <!-- Mapa de Leaflet -->
-        <div id="map" style="width: 65%; height: 320px"></div>
-        <!-- Dentro de tu map-container, reemplaza empty-container2 con: -->
-        <!-- Contenedor para el gráfico radial -->
-        <div
-          id="radial-chart-container"
-          style="
-            width: 50%;
-            height: 300px;
-            background-color: #f9f9f9;
-            margin-left: 10px;
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            align-items: center;
-          "
-        ></div>
-
-        <!-- Agrega el tooltip para el gráfico radial -->
-        <div
-          id="radial-tooltip"
-          style="
-            position: absolute;
-            opacity: 0;
-            background: white;
-            border: 1px solid #ddd;
-            padding: 10px;
-            border-radius: 5px;
-            pointer-events: none;
-          "
-        ></div>
-
-        <!-- Contenedor vacío al costado del mapa -->
-        <div
-          id="empty-container"
-          style="
-            width: 50%;
-            height: 290px;
-            background-color: #cb7272;
-            margin-left: 10px;
-            display: flex;
-            flex-wrap: wrap;
-          "
-        ></div>
-      </div>
-
-      <div id="controls">
-        <label for="month-slider">Selecciona un mes:</label>
-        <input
-          type="range"
-          id="month-slider"
-          min="0"
-          max="12"
-          value="0"
-          step="1"
-        />
-        <span id="month-display">Todos los meses</span>
-      </div>
-      <!-- Contenedor de gráficos debajo del mapa -->
-      <div id="analysis-container" style="width: 100%; text-align: center">
-        <div id="charts-panel">
-          <div class="charts-container"></div>
-        </div>
-      </div>
+    <h1>Mobility Flows Histogram</h1>
+    <div>
+      <label for="fips_d">Enter FIPS_D:</label>
+      <input type="number" id="fips_d" min="1" required />
+      <button onclick="fetchData()">Generate Histogram</button>
     </div>
+    <div id="error" class="error"></div>
+    <div id="histogram" class="histogram"></div>
 
-    <!-- Tooltip para el gráfico radial -->
-    <div
-      id="radial-tooltip"
-      style="
-        position: absolute;
-        opacity: 0;
-        background: white;
-        border: 1px solid #ddd;
-        padding: 10px;
-        border-radius: 5px;
-        pointer-events: none;
-      "
-    ></div>
+    <script>
+      async function fetchData() {
+        const fips_d = document.getElementById("fips_d").value;
+        const errorDiv = document.getElementById("error");
+        const histogramDiv = document.getElementById("histogram");
 
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="https://d3js.org/d3.v4.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/holtzy/D3-graph-gallery@master/LIB/d3-scale-radial.js"></script>
+        // Clear previous content
+        errorDiv.style.display = "none";
+        errorDiv.textContent = "";
+        histogramDiv.innerHTML = "";
 
-    <script src="script.js"></script>
-    <script src="data.js"></script>
-    <script src="radialChart.js"></script>
-    <!-- Nuevo archivo para el gráfico radial -->
+        // Validate input
+        if (!fips_d || fips_d < 1) {
+          errorDiv.textContent =
+            "Please enter a valid positive integer for FIPS_D";
+          errorDiv.style.display = "block";
+          return;
+        }
+
+        try {
+          const response = await fetch(
+            "http://localhost:5050/post_mobility_by_weekdDO",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ FIPS_D: parseInt(fips_d) }),
+            }
+          );
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || "Failed to fetch data");
+          }
+
+          const data = await response.json();
+          if (data.length === 0) {
+            errorDiv.textContent = "No data returned for the specified FIPS_D";
+            errorDiv.style.display = "block";
+            return;
+          }
+
+          // Create histogram
+          drawHistogram(data);
+        } catch (error) {
+          errorDiv.textContent = `Error: ${error.message}`;
+          errorDiv.style.display = "block";
+        }
+      }
+
+      function drawHistogram(data) {
+        // Set dimensions and margins
+        const margin = { top: 20, right: 30, bottom: 50, left: 50 };
+        const width = 800 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        // Create SVG container
+        const svg = d3
+          .select("#histogram")
+          .append("svg")
+          .attr("width", width + margin.left + margin.right)
+          .attr("height", height + margin.top + margin.bottom)
+          .append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Set scales
+        const x = d3
+          .scaleBand()
+          .domain(data.map((d) => d.week))
+          .range([0, width])
+          .padding(0.1);
+
+        const y = d3
+          .scaleLinear()
+          .domain([0, d3.max(data, (d) => d.total_pop_flows)])
+          .nice()
+          .range([height, 0]);
+
+        // Draw bars
+        svg
+          .selectAll(".bar")
+          .data(data)
+          .enter()
+          .append("rect")
+          .attr("class", "bar")
+          .attr("x", (d) => x(d.week))
+          .attr("y", (d) => y(d.total_pop_flows))
+          .attr("width", x.bandwidth())
+          .attr("height", (d) => height - y(d.total_pop_flows));
+
+        // Add X axis
+        svg
+          .append("g")
+          .attr("class", "axis")
+          .attr("transform", `translate(0,${height})`)
+          .call(d3.axisBottom(x))
+          .selectAll("text")
+          .attr("transform", "rotate(-45)")
+          .style("text-anchor", "end");
+
+        // Add Y axis
+        svg.append("g").attr("class", "axis").call(d3.axisLeft(y));
+
+        // Add labels
+        svg
+          .append("text")
+          .attr("x", width / 2)
+          .attr("y", height + margin.bottom - 10)
+          .style("text-anchor", "middle")
+          .text("Week");
+
+        svg
+          .append("text")
+          .attr("x", -height / 2)
+          .attr("y", -margin.left + 20)
+          .attr("transform", "rotate(-90)")
+          .style("text-anchor", "middle")
+          .text("Total Population Flows");
+      }
+    </script>
   </body>
 </html>

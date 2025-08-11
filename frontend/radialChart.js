@@ -32,22 +32,25 @@ function createRadialChart(containerId, tooltipId, fipsCode) {
       2: "#2471A3",
       3: "#8E44AD",
       4: "#512E5F",
+      5: "#2E1B47",
     },
     deaths: {
       1: "#F4D03F",
       2: "#E67E22",
       3: "#CB4335",
       4: "#641E16",
+      5: "#4A0E0E",
     },
   };
 
-  // Function to determine color based on value (ORIGINAL)
+  // Function to determine color based on value (ROBUSTA PARA 5 NIVELES)
   function getColor(value, type) {
-    if (!value) return "#ccc"; // Para valores null/undefined
-    if (value <= 0.25) return colorSchemes[type][1];
-    if (value <= 0.5) return colorSchemes[type][2];
-    if (value <= 0.75) return colorSchemes[type][3];
-    return colorSchemes[type][4];
+    if (!value || isNaN(value)) return colorSchemes[type][1]; // Usar nivel 1 en lugar de gris
+    if (value <= 0.2) return colorSchemes[type][1];
+    if (value <= 0.4) return colorSchemes[type][2];
+    if (value <= 0.6) return colorSchemes[type][3];
+    if (value <= 0.8) return colorSchemes[type][4];
+    return colorSchemes[type][5];
   }
 
   // append the svg object (ORIGINAL)
@@ -127,7 +130,7 @@ function createRadialChart(containerId, tooltipId, fipsCode) {
     var ybis = d3.scaleRadial().range([innerRadius, 5]).domain([0, 1]);
 
     // Add prominent reference circles (black)
-    var referenceValues = [0.25, 0.5, 0.75, 1];
+    var referenceValues = [0.2, 0.4, 0.6, 0.8, 1];
     var referenceCircles = svg.append("g").attr("class", "reference-circles");
 
     referenceCircles
@@ -202,7 +205,28 @@ function createRadialChart(containerId, tooltipId, fipsCode) {
       //   d3.select(this).attr("opacity", 1);
       // })
       .on("click", function (event, d) {
-        showTooltip(event, d, true);
+        const selectedWeek = d.Week || d.data?.week;
+        window.lastFlowWeek = selectedWeek;
+        // Actualiza los botones de semana
+        if (typeof createWeekButtons === "function") {
+          createWeekButtons(selectedWeek);
+        }
+        // Actualiza el diagrama de flujo
+        if (window.lastFlowFips) {
+          loadFlowDiagram(window.lastFlowFips, selectedWeek);
+        }
+        // Actualiza los cubos
+        if (typeof filterByWeek === "function") {
+          filterByWeek(selectedWeek);
+        }
+        // (Opcional) Resalta la semana en el radial
+        if (typeof window.highlightRadialWeek === "function") {
+          window.highlightRadialWeek(selectedWeek);
+        }
+        // --- NUEVO: Sincroniza el gráfico de líneas doble ---
+        if (typeof updateLineChartHighlights === "function") {
+          updateLineChartHighlights();
+        }
       });
 
     // Add the second series (New_Deaths_Normalized) with color coding (COLORES ORIGINALES)
@@ -244,7 +268,20 @@ function createRadialChart(containerId, tooltipId, fipsCode) {
       //   d3.select(this).attr("opacity", 1);
       // })
       .on("click", function (event, d) {
-        showTooltip(event, d, true);
+        const selectedWeek = d.Week || d.data?.week;
+        window.lastFlowWeek = selectedWeek;
+        if (typeof createWeekButtons === "function") {
+          createWeekButtons(selectedWeek);
+        }
+        if (window.lastFlowFips) {
+          loadFlowDiagram(window.lastFlowFips, selectedWeek);
+        }
+        if (typeof filterByWeek === "function") {
+          filterByWeek(selectedWeek);
+        }
+        if (typeof window.highlightRadialWeek === "function") {
+          window.highlightRadialWeek(selectedWeek);
+        }
       });
 
     // Tooltip functions (ORIGINAL)
